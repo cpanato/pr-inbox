@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpanato/pr-inbox/internal/provider"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,29 +24,6 @@ type Client struct {
 	token      string
 	httpClient *http.Client
 	baseURL    string
-}
-
-type Viewer struct {
-	ID    int64  `json:"id"`
-	Login string `json:"login"`
-}
-
-type PullRequest struct {
-	ID        int64     `json:"id"`
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
-	HTMLURL   string    `json:"html_url"`
-	Repo      string    `json:"repo"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Draft     *bool     `json:"draft"`
-	CI        string    `json:"ci"`
-}
-
-type SearchResult struct {
-	Items      []PullRequest
-	TotalCount int
 }
 
 type apiError struct {
@@ -85,19 +63,19 @@ func NewClient(token string) *Client {
 	}
 }
 
-func (c *Client) Viewer(ctx context.Context) (Viewer, error) {
+func (c *Client) Viewer(ctx context.Context) (provider.Viewer, error) {
 	var response viewerResponse
 	if err := c.get(ctx, "/user", nil, &response); err != nil {
-		return Viewer{}, err
+		return provider.Viewer{}, err
 	}
 	if response.ID == 0 || response.Login == "" {
-		return Viewer{}, fmt.Errorf("GitHub returned an incomplete account identity")
+		return provider.Viewer{}, fmt.Errorf("GitHub returned an incomplete account identity")
 	}
-	return Viewer{ID: response.ID, Login: response.Login}, nil
+	return provider.Viewer{ID: response.ID, Login: response.Login}, nil
 }
 
-func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (SearchResult, error) {
-	result := SearchResult{}
+func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (provider.SearchResult, error) {
+	result := provider.SearchResult{}
 	for page := 1; len(result.Items) < limit; page++ {
 		values := url.Values{
 			"q":        []string{query},
@@ -108,7 +86,7 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 		}
 		var response searchResponse
 		if err := c.get(ctx, "/search/issues", values, &response); err != nil {
-			return SearchResult{}, err
+			return provider.SearchResult{}, err
 		}
 		result.TotalCount = response.TotalCount
 		if page == 1 && response.TotalCount == 0 {
@@ -118,7 +96,7 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 			if item.PullRequest == nil {
 				continue
 			}
-			result.Items = append(result.Items, PullRequest{
+			result.Items = append(result.Items, provider.PullRequest{
 				ID:        item.ID,
 				Number:    item.Number,
 				Title:     item.Title,

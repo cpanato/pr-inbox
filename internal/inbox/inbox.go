@@ -3,38 +3,21 @@ package inbox
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/cpanato/pr-inbox/internal/github"
+	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
 const (
 	queueLimit = 200
 	cacheTTL   = 2 * time.Minute
-
-	// Archived repositories are read-only, so their PRs are never actionable.
-	baseQuery = "is:pr is:open archived:false"
 )
 
-var orgPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
-
-type Searcher interface {
-	SearchPullRequests(context.Context, string, int) (github.SearchResult, error)
-}
-
-// CIChecker is optionally implemented by the searcher to report CI state.
-type CIChecker interface {
-	CIStatuses(context.Context, []github.PullRequest) (map[int64]string, error)
-}
-
 type Service struct {
-	client Searcher
-	viewer github.Viewer
-	orgs   []string
+	provider provider.Provider
+	orgs     []string
 
 	mu       sync.Mutex
 	cached   *Snapshot
@@ -42,7 +25,7 @@ type Service struct {
 }
 
 type PullRequest struct {
-	github.PullRequest
+	provider.PullRequest
 	Reasons []string `json:"reasons"`
 }
 
@@ -61,11 +44,11 @@ type Snapshot struct {
 	TeamNote  string    `json:"teamCoverage"`
 }
 
-func New(client Searcher, viewer github.Viewer, orgs []string) *Service {
-	return &Service{client: client, viewer: viewer, orgs: append([]string(nil), orgs...)}
+func New(p provider.Provider, orgs []string) *Service {
+	return &Service{provider: p, orgs: append([]string(nil), orgs...)}
 }
 
-func (s *Service) Viewer() github.Viewer { return s.viewer }
+func (s *Service) Info() provider.Info { return s.provider.Info() }
 
 func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 	s.mu.Lock()
@@ -74,18 +57,18 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 		return cloneSnapshot(*s.cached), nil
 	}
 
-	reviewQueue, err := s.discover(ctx, "review-requested:"+s.viewer.Login)
+	reviewQueue, err := s.discover(ctx, provider.ReviewRequested)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("load review requests: %w", err)
 	}
-	myQueue, err := s.discover(ctx, "author:"+s.viewer.Login)
+	myQueue, err := s.discover(ctx, provider.Authored)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("load authored pull requests: %w", err)
 	}
 	s.attachCI(ctx, &reviewQueue, &myQueue)
 	result := Snapshot{
 		FetchedAt: time.Now().UTC(),
-		Viewer:    s.viewer.Login,
+		Viewer:    s.provider.Info().Viewer.Login,
 		ToReview:  reviewQueue,
 		MyPRs:     myQueue,
 		TeamNote:  "Direct requests only; team-request coverage is not included.",
@@ -99,43 +82,38 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 // lookup. CI is supplementary, so a failed lookup leaves the PRs as unknown
 // instead of failing the whole inbox.
 func (s *Service) attachCI(ctx context.Context, queues ...*Queue) {
-	checker, ok := s.client.(CIChecker)
-	unique := make(map[int64]github.PullRequest)
+	unique := make(map[int64]provider.PullRequest)
 	for _, queue := range queues {
 		for _, item := range queue.Items {
 			unique[item.ID] = item.PullRequest
 		}
 	}
 	var statuses map[int64]string
-	if ok && len(unique) > 0 {
-		prs := make([]github.PullRequest, 0, len(unique))
+	if len(unique) > 0 {
+		prs := make([]provider.PullRequest, 0, len(unique))
 		for _, pr := range unique {
 			prs = append(prs, pr)
 		}
-		statuses, _ = checker.CIStatuses(ctx, prs)
+		statuses, _ = s.provider.CIStatuses(ctx, prs)
 	}
 	for _, queue := range queues {
 		for i := range queue.Items {
 			status := statuses[queue.Items[i].ID]
 			if status == "" {
-				status = github.CIUnknown
+				status = provider.CIUnknown
 			}
 			queue.Items[i].CI = status
 		}
 	}
 }
 
-func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {
-	queries := make([]string, 0, len(s.orgs))
+func (s *Service) discover(ctx context.Context, role provider.Role) (Queue, error) {
+	queries := make([]provider.Query, 0, max(len(s.orgs), 1))
 	if len(s.orgs) == 0 {
-		queries = append(queries, baseQuery+" "+filter)
-	} else {
-		for _, org := range s.orgs {
-			if !orgPattern.MatchString(org) {
-				return Queue{}, fmt.Errorf("invalid organization name %q", org)
-			}
-			queries = append(queries, baseQuery+" org:"+org+" "+filter)
-		}
+		queries = append(queries, provider.Query{Role: role})
+	}
+	for _, org := range s.orgs {
+		queries = append(queries, provider.Query{Role: role, Org: org})
 	}
 
 	byID := make(map[int64]PullRequest)
@@ -148,7 +126,7 @@ func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {
 			truncated = true
 			break
 		}
-		result, err := s.client.SearchPullRequests(ctx, query, remaining)
+		result, err := s.provider.Search(ctx, query, remaining)
 		if err != nil {
 			return Queue{}, err
 		}
@@ -159,13 +137,13 @@ func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {
 		for _, pr := range result.Items {
 			item, exists := byID[pr.ID]
 			if !exists {
-				item = PullRequest{PullRequest: pr, Reasons: []string{filterReason(filter)}}
+				item = PullRequest{PullRequest: pr, Reasons: []string{filterReason(role)}}
 				byID[pr.ID] = item
 				remaining--
 				continue
 			}
 			duplicateCount++
-			item.Reasons = appendUnique(item.Reasons, filterReason(filter))
+			item.Reasons = appendUnique(item.Reasons, filterReason(role))
 			byID[pr.ID] = item
 		}
 		if remaining == 0 && queryIndex < len(queries)-1 {
@@ -192,8 +170,8 @@ func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {
 	}, nil
 }
 
-func filterReason(filter string) string {
-	if strings.HasPrefix(filter, "review-requested:") {
+func filterReason(role provider.Role) string {
+	if role == provider.ReviewRequested {
 		return "Requested from you"
 	}
 	return "Authored by you"

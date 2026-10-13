@@ -5,18 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpanato/pr-inbox/internal/provider"
 	"io"
 	"net/http"
 	"strings"
-)
-
-// CI states reported for a pull request's latest commit.
-const (
-	CISuccess = "success"
-	CIFailure = "failure"
-	CIPending = "pending"
-	CINone    = "none"
-	CIUnknown = "unknown"
 )
 
 const ciBatchSize = 50
@@ -45,7 +37,7 @@ type ciRepository struct {
 // CIStatuses returns the combined check/status state of each pull request's
 // latest commit, keyed by pull request ID. Pull requests that GitHub could not
 // resolve are reported as CIUnknown.
-func (c *Client) CIStatuses(ctx context.Context, prs []PullRequest) (map[int64]string, error) {
+func (c *Client) CIStatuses(ctx context.Context, prs []provider.PullRequest) (map[int64]string, error) {
 	statuses := make(map[int64]string, len(prs))
 	for start := 0; start < len(prs); start += ciBatchSize {
 		end := min(start+ciBatchSize, len(prs))
@@ -56,7 +48,7 @@ func (c *Client) CIStatuses(ctx context.Context, prs []PullRequest) (map[int64]s
 	return statuses, nil
 }
 
-func (c *Client) ciBatch(ctx context.Context, prs []PullRequest, statuses map[int64]string) error {
+func (c *Client) ciBatch(ctx context.Context, prs []provider.PullRequest, statuses map[int64]string) error {
 	var query strings.Builder
 	variables := make(map[string]any, len(prs)*3)
 	query.WriteString("query(")
@@ -71,7 +63,7 @@ func (c *Client) ciBatch(ctx context.Context, prs []PullRequest, statuses map[in
 	for i, pr := range prs {
 		owner, name, ok := strings.Cut(pr.Repo, "/")
 		if !ok || owner == "" || name == "" {
-			statuses[pr.ID] = CIUnknown
+			statuses[pr.ID] = provider.CIUnknown
 			// A placeholder keeps variable declarations and selections aligned.
 			owner, name = "-", "-"
 		} else {
@@ -99,21 +91,21 @@ func (c *Client) ciBatch(ctx context.Context, prs []PullRequest, statuses map[in
 
 func ciState(repository *ciRepository) string {
 	if repository == nil || repository.PullRequest == nil {
-		return CIUnknown
+		return provider.CIUnknown
 	}
 	nodes := repository.PullRequest.Commits.Nodes
 	if len(nodes) == 0 || nodes[0].Commit.StatusCheckRollup == nil {
-		return CINone
+		return provider.CINone
 	}
 	switch nodes[0].Commit.StatusCheckRollup.State {
 	case "SUCCESS":
-		return CISuccess
+		return provider.CISuccess
 	case "FAILURE", "ERROR":
-		return CIFailure
+		return provider.CIFailure
 	case "PENDING", "EXPECTED":
-		return CIPending
+		return provider.CIPending
 	default:
-		return CIUnknown
+		return provider.CIUnknown
 	}
 }
 

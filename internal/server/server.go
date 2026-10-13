@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -23,7 +24,7 @@ const (
 var frontend embed.FS
 
 type Handler struct {
-	service   *inbox.Service
+	services  []*inbox.Service
 	origin    string
 	host      string
 	launchKey string
@@ -39,7 +40,11 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-func New(service *inbox.Service, readOnly bool, address string) (http.Handler, string, error) {
+// New serves the given providers; the first one is the default.
+func New(services []*inbox.Service, readOnly bool, address string) (http.Handler, string, error) {
+	if len(services) == 0 {
+		return nil, "", errors.New("at least one provider is required")
+	}
 	dist, err := fs.Sub(frontend, "web/dist")
 	if err != nil {
 		return nil, "", fmt.Errorf("load embedded frontend: %w", err)
@@ -51,7 +56,7 @@ func New(service *inbox.Service, readOnly bool, address string) (http.Handler, s
 	host := address
 	origin := "http://" + host
 	handler := &Handler{
-		service:   service,
+		services:  services,
 		origin:    origin,
 		host:      host,
 		launchKey: launchKey,
@@ -85,11 +90,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w)
 			return
 		}
+		primary := h.services[0].Info()
+		providers := make([]map[string]string, 0, len(h.services))
+		for _, service := range h.services {
+			info := service.Info()
+			providers = append(providers, map[string]string{
+				"id": info.ID, "name": info.Name, "kind": info.Kind, "host": info.Host, "viewer": info.Viewer.Login,
+			})
+		}
 		h.respond(w, http.StatusOK, map[string]any{
-			"viewer":             h.service.Viewer().Login,
+			"viewer":             primary.Viewer.Login,
 			"readOnly":           h.readOnly,
 			"mutationsAvailable": false,
-			"host":               "github.com",
+			"host":               primary.Host,
+			"providers":          providers,
 		})
 	case "/api/inbox":
 		if !h.authorize(w, r, false) {
@@ -207,10 +221,24 @@ func (h *Handler) sameOrigin(w http.ResponseWriter, r *http.Request, requireOrig
 }
 
 func (h *Handler) inbox(w http.ResponseWriter, r *http.Request, force bool) {
-	result, err := h.service.Snapshot(r.Context(), force)
+	service := h.services[0]
+	if id := r.URL.Query().Get("provider"); id != "" {
+		service = nil
+		for _, candidate := range h.services {
+			if candidate.Info().ID == id {
+				service = candidate
+				break
+			}
+		}
+		if service == nil {
+			h.writeError(w, http.StatusNotFound, "unknown_provider", "No such provider is configured.")
+			return
+		}
+	}
+	result, err := service.Snapshot(r.Context(), force)
 	if err != nil {
 		message := err.Error()
-		code := "github_error"
+		code := "provider_error"
 		for _, candidate := range []string{"auth_required", "permission_denied", "rate_limited"} {
 			if strings.Contains(message, candidate) {
 				code = candidate
