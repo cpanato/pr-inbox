@@ -175,7 +175,7 @@ function App() {
             <h1>Pull request inbox</h1>
             <p className="subheading">A clear view of what needs your attention.</p>
           </div>
-          <button className="refresh-button" type="button" onClick={() => void loadInbox(true)} disabled={!session || refreshing}>
+          <button className="refresh-button" type="button" onClick={() => void loadInbox(true, csrfToken)} disabled={!session || refreshing}>
             <span aria-hidden="true" className={refreshing ? "refresh-icon spinning" : "refresh-icon"}>↻</span>
             {refreshing ? "Refreshing" : "Refresh"}
           </button>
