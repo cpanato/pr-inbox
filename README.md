@@ -40,7 +40,7 @@ credentials stay in the Go process and are never sent to the browser.
 
 ## Development
 
-Building from source needs Go 1.27+, Node.js 24.x with npm (see `.nvmrc`) for
+Building from source needs Go 1.27, Node.js 24.x with npm (see `.nvmrc`) for
 the embedded frontend, and an authenticated GitHub CLI (`gh`).
 
 ```sh
