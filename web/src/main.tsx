@@ -157,7 +157,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="PR Inbox home">
-          <span className="brand-mark" aria-hidden="true">PR</span>
+          <img className="brand-mark" src="/logo.svg" alt="" width="30" height="30" />
           <span>inbox</span>
         </a>
         {session && (

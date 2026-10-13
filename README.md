@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/public/logo.svg" alt="PR Inbox logo" width="96" height="96">
+</p>
+
 # PR Inbox
 
 A local GitHub pull request inbox. The Go server reads the existing GitHub CLI
