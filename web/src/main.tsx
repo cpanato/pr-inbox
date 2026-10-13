@@ -189,6 +189,14 @@ function App() {
           </section>
         )}
 
+        {loading && !inbox && !error && (
+          <section className="loading-panel" role="status" aria-live="polite">
+            <div className="loading-bar" aria-hidden="true"><i /></div>
+            <strong>Loading your pull requests…</strong>
+            <p>Searching GitHub for PRs that need your review and PRs you authored. This can take a few seconds.</p>
+          </section>
+        )}
+
         {inbox && (
           <>
             <div className="freshness">
@@ -238,8 +246,12 @@ function App() {
               </div>
 
               {queue?.truncated && (
-                <div className="notice truncation-notice">
-                  Showing a limited result set. Add an organization filter with <code>--org ORG</code> for narrower discovery.
+                <div className="notice truncation-notice" role="status">
+                  <strong>Not all pull requests are shown.</strong>{" "}
+                  This queue has {queue.totalCount} matching PRs, but only the first {queue.items.length} are loaded
+                  (limit of {queue.items.length} per queue). Some PRs, including possibly older ones, may be missing.
+                  Restart with <code>--org ORG</code> to narrow discovery to the organizations you care about.
+                  The organization and repository filters above only filter what is already loaded.
                 </div>
               )}
               {filtered.length === 0 ? (
@@ -272,6 +284,11 @@ function countBy(items: PullRequest[], key: (item: PullRequest) => string): [str
   return [...counts.entries()].sort((left, right) => left[0].localeCompare(right[0]));
 }
 
+const reasonHelp: Record<string, string> = {
+  "Requested from you": "You were directly asked to review this pull request.",
+  "Authored by you": "You opened this pull request.",
+};
+
 function PRCard({ item }: { item: PullRequest }) {
   const draft = item.draft === true ? "Draft" : item.draft === false ? "Ready for review" : "Draft status unavailable";
   return (
@@ -288,8 +305,9 @@ function PRCard({ item }: { item: PullRequest }) {
       </div>
       <div className="pr-details">
         <span className={item.draft === true ? "draft-label" : "state-label"}>{draft}</span>
-        <span className="check-label" title="Check summaries will be added in the detail milestone">Checks not loaded</span>
-        {item.reasons.map((reason) => <span className="reason-label" key={reason}>{reason}</span>)}
+        {item.reasons.map((reason) => (
+          <span className="reason-label" key={reason} title={reasonHelp[reason]}>{reason}</span>
+        ))}
       </div>
       <a className="open-link" href={item.html_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.repo} pull request ${item.number} on GitHub`}>↗</a>
     </li>
