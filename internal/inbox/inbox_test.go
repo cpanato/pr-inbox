@@ -27,9 +27,9 @@ func TestSnapshotDiscoversBothQueuesWithReasons(t *testing.T) {
 			t.Errorf("search limit = %d, want %d", limit, queueLimit)
 		}
 		switch query {
-		case "is:pr is:open review-requested:reviewer":
+		case baseQuery + " review-requested:reviewer":
 			return github.SearchResult{Items: []github.PullRequest{newer, old}, TotalCount: 2}, nil
-		case "is:pr is:open author:reviewer":
+		case baseQuery + " author:reviewer":
 			return github.SearchResult{Items: []github.PullRequest{newer}, TotalCount: 1}, nil
 		default:
 			t.Errorf("unexpected query %q", query)
@@ -59,8 +59,8 @@ func TestSnapshotDiscoversBothQueuesWithReasons(t *testing.T) {
 func TestSnapshotDeduplicatesAcrossOrganizations(t *testing.T) {
 	pr := github.PullRequest{ID: 42, Number: 5, Repo: "org/repo"}
 	client := fakeSearcher{search: func(_ context.Context, query string, _ int) (github.SearchResult, error) {
-		if !strings.Contains(query, "org:") {
-			t.Errorf("query %q does not include org filter", query)
+		if !strings.Contains(query, "archived:false") || !strings.Contains(query, "org:") {
+			t.Errorf("query %q must exclude archived repositories and include an org filter", query)
 		}
 		return github.SearchResult{Items: []github.PullRequest{pr}, TotalCount: 1}, nil
 	}}

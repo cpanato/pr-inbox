@@ -15,6 +15,9 @@ import (
 const (
 	queueLimit = 200
 	cacheTTL   = 2 * time.Minute
+
+	// Archived repositories are read-only, so their PRs are never actionable.
+	baseQuery = "is:pr is:open archived:false"
 )
 
 var orgPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
@@ -89,13 +92,13 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {
 	queries := make([]string, 0, len(s.orgs))
 	if len(s.orgs) == 0 {
-		queries = append(queries, "is:pr is:open "+filter)
+		queries = append(queries, baseQuery+" "+filter)
 	} else {
 		for _, org := range s.orgs {
 			if !orgPattern.MatchString(org) {
 				return Queue{}, fmt.Errorf("invalid organization name %q", org)
 			}
-			queries = append(queries, "is:pr is:open org:"+org+" "+filter)
+			queries = append(queries, baseQuery+" org:"+org+" "+filter)
 		}
 	}
 

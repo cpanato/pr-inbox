@@ -84,6 +84,8 @@ function App() {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [activeTab, setActiveTab] = useState<"review" | "mine">("review");
   const [query, setQuery] = useState("");
+  const [org, setOrg] = useState("");
+  const [repo, setRepo] = useState("");
   const [order, setOrder] = useState<"oldest" | "recent">("oldest");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -129,7 +131,18 @@ function App() {
   }, [loadInbox]);
 
   const queue = activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
-  const filtered = (queue?.items ?? [])
+  const queueItems = queue?.items ?? [];
+  const orgOptions = countBy(queueItems, (item) => orgOf(item.repo));
+  const activeOrg = orgOptions.some(([name]) => name === org) ? org : "";
+  const repoOptions = countBy(
+    queueItems.filter((item) => !activeOrg || orgOf(item.repo) === activeOrg),
+    (item) => item.repo,
+  );
+  const activeRepo = repoOptions.some(([name]) => name === repo) ? repo : "";
+  const hasFilters = query !== "" || activeOrg !== "" || activeRepo !== "";
+  const filtered = queueItems
+    .filter((item) => !activeOrg || orgOf(item.repo) === activeOrg)
+    .filter((item) => !activeRepo || item.repo === activeRepo)
     .filter((item) => `${item.repo} ${item.title} ${item.author}`.toLowerCase().includes(query.toLowerCase()))
     .sort((left, right) => order === "recent"
       ? Date.parse(right.updated_at) - Date.parse(left.updated_at)
@@ -198,6 +211,22 @@ function App() {
                   <p>{queue?.ordering}</p>
                 </div>
                 <div className="queue-controls">
+                  <label className="visually-hidden" htmlFor="org-filter">Filter by organization</label>
+                  <select
+                    id="org-filter"
+                    value={activeOrg}
+                    onChange={(event) => { setOrg(event.target.value); setRepo(""); }}
+                  >
+                    <option value="">All organizations</option>
+                    {orgOptions.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
+                  </select>
+                  <label className="visually-hidden" htmlFor="repo-filter">Filter by repository</label>
+                  <select id="repo-filter" value={activeRepo} onChange={(event) => setRepo(event.target.value)}>
+                    <option value="">All repositories</option>
+                    {repoOptions.map(([name, count]) => (
+                      <option key={name} value={name}>{activeOrg ? name.slice(activeOrg.length + 1) : name} ({count})</option>
+                    ))}
+                  </select>
                   <label className="visually-hidden" htmlFor="sort-order">Sort pull requests</label>
                   <select id="sort-order" value={order} onChange={(event) => setOrder(event.target.value as "oldest" | "recent")}>
                     <option value="oldest">Oldest first</option>
@@ -215,9 +244,9 @@ function App() {
               )}
               {filtered.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-icon" aria-hidden="true">{query ? "⌕" : "✓"}</div>
-                  <h3>{query ? "No matching pull requests" : "You're all caught up"}</h3>
-                  <p>{query ? "Try a different title, repository, or author." : "There are no open pull requests in this queue right now."}</p>
+                  <div className="empty-icon" aria-hidden="true">{hasFilters ? "⌕" : "✓"}</div>
+                  <h3>{hasFilters ? "No matching pull requests" : "You're all caught up"}</h3>
+                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : "There are no open pull requests in this queue right now."}</p>
                 </div>
               ) : (
                 <ul className="pr-list">
@@ -231,6 +260,16 @@ function App() {
       <footer className="footer">Local to this device · No PR code is executed</footer>
     </div>
   );
+}
+
+function orgOf(repo: string): string {
+  return repo.split("/")[0];
+}
+
+function countBy(items: PullRequest[], key: (item: PullRequest) => string): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(key(item), (counts.get(key(item)) ?? 0) + 1);
+  return [...counts.entries()].sort((left, right) => left[0].localeCompare(right[0]));
 }
 
 function PRCard({ item }: { item: PullRequest }) {
