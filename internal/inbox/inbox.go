@@ -26,6 +26,11 @@ type Searcher interface {
 	SearchPullRequests(context.Context, string, int) (github.SearchResult, error)
 }
 
+// CIChecker is optionally implemented by the searcher to report CI state.
+type CIChecker interface {
+	CIStatuses(context.Context, []github.PullRequest) (map[int64]string, error)
+}
+
 type Service struct {
 	client Searcher
 	viewer github.Viewer
@@ -77,6 +82,7 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("load authored pull requests: %w", err)
 	}
+	s.attachCI(ctx, &reviewQueue, &myQueue)
 	result := Snapshot{
 		FetchedAt: time.Now().UTC(),
 		Viewer:    s.viewer.Login,
@@ -87,6 +93,36 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 	s.cached = &result
 	s.cachedAt = time.Now()
 	return cloneSnapshot(result), nil
+}
+
+// attachCI fills in the CI state of every unique PR with a single batched
+// lookup. CI is supplementary, so a failed lookup leaves the PRs as unknown
+// instead of failing the whole inbox.
+func (s *Service) attachCI(ctx context.Context, queues ...*Queue) {
+	checker, ok := s.client.(CIChecker)
+	unique := make(map[int64]github.PullRequest)
+	for _, queue := range queues {
+		for _, item := range queue.Items {
+			unique[item.ID] = item.PullRequest
+		}
+	}
+	var statuses map[int64]string
+	if ok && len(unique) > 0 {
+		prs := make([]github.PullRequest, 0, len(unique))
+		for _, pr := range unique {
+			prs = append(prs, pr)
+		}
+		statuses, _ = checker.CIStatuses(ctx, prs)
+	}
+	for _, queue := range queues {
+		for i := range queue.Items {
+			status := statuses[queue.Items[i].ID]
+			if status == "" {
+				status = github.CIUnknown
+			}
+			queue.Items[i].CI = status
+		}
+	}
 }
 
 func (s *Service) discover(ctx context.Context, filter string) (Queue, error) {

@@ -100,3 +100,59 @@ func TestDiscoverRejectsInvalidOrganization(t *testing.T) {
 		t.Fatalf("discover() error = %v, want invalid organization error", err)
 	}
 }
+
+type fakeCIClient struct {
+	fakeSearcher
+	statuses map[int64]string
+	err      error
+	calls    int
+}
+
+func (f *fakeCIClient) CIStatuses(_ context.Context, prs []github.PullRequest) (map[int64]string, error) {
+	f.calls++
+	return f.statuses, f.err
+}
+
+func TestSnapshotAttachesCIStatusWithSingleLookup(t *testing.T) {
+	pr := github.PullRequest{ID: 1, Number: 1, Repo: "org/repo"}
+	other := github.PullRequest{ID: 2, Number: 2, Repo: "org/other"}
+	client := &fakeCIClient{
+		fakeSearcher: fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
+			return github.SearchResult{Items: []github.PullRequest{pr, other}, TotalCount: 2}, nil
+		}},
+		statuses: map[int64]string{1: github.CIFailure},
+	}
+	snapshot, err := New(client, github.Viewer{Login: "reviewer"}, nil).Snapshot(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("CIStatuses calls = %d, want 1", client.calls)
+	}
+	for _, item := range snapshot.ToReview.Items {
+		want := github.CIUnknown
+		if item.ID == 1 {
+			want = github.CIFailure
+		}
+		if item.CI != want {
+			t.Fatalf("CI of PR %d = %q, want %q", item.ID, item.CI, want)
+		}
+	}
+}
+
+func TestSnapshotSurvivesCILookupFailure(t *testing.T) {
+	pr := github.PullRequest{ID: 1, Number: 1, Repo: "org/repo"}
+	client := &fakeCIClient{
+		fakeSearcher: fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
+			return github.SearchResult{Items: []github.PullRequest{pr}, TotalCount: 1}, nil
+		}},
+		err: errors.New("graphql down"),
+	}
+	snapshot, err := New(client, github.Viewer{Login: "reviewer"}, nil).Snapshot(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v, CI failures must not fail the inbox", err)
+	}
+	if got := snapshot.ToReview.Items[0].CI; got != github.CIUnknown {
+		t.Fatalf("CI = %q, want unknown", got)
+	}
+}
