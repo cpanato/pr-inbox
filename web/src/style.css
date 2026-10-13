@@ -53,7 +53,8 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .queue-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 15px; }
 .queue-heading h2 { margin-bottom: 4px; font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -.2px; }
 .queue-heading p { margin: 0; color: #8a929e; font-size: 11px; }
-.queue-controls { display: flex; gap: 8px; }
+.queue-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.queue-controls select { max-width: 170px; }
 .queue-controls input, .queue-controls select { height: 34px; border: 1px solid #e0e4e9; border-radius: 7px; background: #fff; color: #505968; font-size: 11px; }
 .queue-controls input { width: 152px; padding: 0 10px; }
 .queue-controls select { padding: 0 25px 0 9px; }
