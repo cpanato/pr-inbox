@@ -75,6 +75,13 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .draft-label { color: #8a661b; background: #fff3d6; }
 .state-label { color: #536273; background: #f0f2f5; }
 .check-label { color: #647080; background: #f0f2f5; }
+.loading-panel { display: grid; gap: 8px; padding: 28px 24px; border: 1px solid var(--line, #e3e7ee); border-radius: 10px; background: #fff; color: var(--muted); font-size: 13px; }
+.loading-panel strong { color: inherit; font-size: 15px; }
+.loading-panel p { margin: 0; }
+.loading-bar { height: 4px; overflow: hidden; border-radius: 2px; background: #dce2f7; }
+.loading-bar i { display: block; width: 35%; height: 100%; border-radius: 2px; background: var(--blue); animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .loading-bar i { animation: none; width: 100%; } }
 .reason-label { color: #4f64b4; background: #edf0ff; }
 .open-link { color: #a1a9b4; font-size: 16px; text-align: center; text-decoration: none; }
 .open-link:hover { color: var(--blue); }
