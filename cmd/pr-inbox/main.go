@@ -20,6 +20,7 @@ import (
 	"github.com/cpanato/pr-inbox/internal/demo"
 	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/inbox"
+	"github.com/cpanato/pr-inbox/internal/provider"
 	"github.com/cpanato/pr-inbox/internal/server"
 )
 
@@ -68,11 +69,11 @@ func run(args []string) error {
 		return errors.New("--demo cannot be combined with doctor")
 	}
 
-	var searcher inbox.Searcher
-	var viewer github.Viewer
+	var source provider.Provider
+	var viewer provider.Viewer
 	if *demoMode {
-		searcher = demo.New()
-		viewer = github.Viewer{ID: 1, Login: demo.Login}
+		source = demo.New()
+		viewer = source.Info().Viewer
 	} else {
 		token, err := auth.Token(context.Background())
 		if err != nil {
@@ -89,19 +90,19 @@ func run(args []string) error {
 			}
 			return err
 		}
-		searcher = client
+		source = github.NewProvider(client, viewer)
 	}
 	if *doctor {
 		fmt.Printf("GitHub CLI: available\nGitHub account: %s\nGitHub API: connected\n", viewer.Login)
 		return nil
 	}
 
-	inboxService := inbox.New(searcher, viewer, orgs)
+	inboxService := inbox.New(source, orgs)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
 	}
-	handler, launchURL, err := server.New(inboxService, *readOnly, listener.Addr().String())
+	handler, launchURL, err := server.New([]*inbox.Service{inboxService}, *readOnly, listener.Addr().String())
 	if err != nil {
 		_ = listener.Close()
 		return err

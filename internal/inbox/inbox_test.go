@@ -7,36 +7,55 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpanato/pr-inbox/internal/github"
+	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
-type fakeSearcher struct {
-	search func(context.Context, string, int) (github.SearchResult, error)
+type fakeProvider struct {
+	viewer   provider.Viewer
+	search   func(context.Context, provider.Query, int) (provider.SearchResult, error)
+	statuses map[int64]string
+	ciErr    error
+	ciCalls  int
 }
 
-func (f fakeSearcher) SearchPullRequests(ctx context.Context, query string, limit int) (github.SearchResult, error) {
-	return f.search(ctx, query, limit)
+func (f *fakeProvider) Info() provider.Info {
+	return provider.Info{ID: "fake", Name: "Fake", Kind: "fake", Host: "example.test", Viewer: f.viewer}
+}
+
+func (f *fakeProvider) Search(ctx context.Context, q provider.Query, limit int) (provider.SearchResult, error) {
+	return f.search(ctx, q, limit)
+}
+
+func (f *fakeProvider) CIStatuses(context.Context, []provider.PullRequest) (map[int64]string, error) {
+	f.ciCalls++
+	return f.statuses, f.ciErr
+}
+
+func newFake(search func(context.Context, provider.Query, int) (provider.SearchResult, error)) *fakeProvider {
+	return &fakeProvider{viewer: provider.Viewer{ID: 7, Login: "reviewer"}, search: search}
 }
 
 func TestSnapshotDiscoversBothQueuesWithReasons(t *testing.T) {
-	viewer := github.Viewer{ID: 7, Login: "reviewer"}
-	old := github.PullRequest{ID: 1, Number: 10, Repo: "org/old", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	newer := github.PullRequest{ID: 2, Number: 11, Repo: "org/new", CreatedAt: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)}
-	client := fakeSearcher{search: func(_ context.Context, query string, limit int) (github.SearchResult, error) {
+	old := provider.PullRequest{ID: 1, Number: 10, Repo: "org/old", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	newer := provider.PullRequest{ID: 2, Number: 11, Repo: "org/new", CreatedAt: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)}
+	fake := newFake(func(_ context.Context, q provider.Query, limit int) (provider.SearchResult, error) {
 		if limit != queueLimit {
 			t.Errorf("search limit = %d, want %d", limit, queueLimit)
 		}
-		switch query {
-		case baseQuery + " review-requested:reviewer":
-			return github.SearchResult{Items: []github.PullRequest{newer, old}, TotalCount: 2}, nil
-		case baseQuery + " author:reviewer":
-			return github.SearchResult{Items: []github.PullRequest{newer}, TotalCount: 1}, nil
-		default:
-			t.Errorf("unexpected query %q", query)
-			return github.SearchResult{}, nil
+		if q.Org != "" {
+			t.Errorf("unexpected org %q", q.Org)
 		}
-	}}
-	service := New(client, viewer, nil)
+		switch q.Role {
+		case provider.ReviewRequested:
+			return provider.SearchResult{Items: []provider.PullRequest{newer, old}, TotalCount: 2}, nil
+		case provider.Authored:
+			return provider.SearchResult{Items: []provider.PullRequest{newer}, TotalCount: 1}, nil
+		default:
+			t.Errorf("unexpected role %q", q.Role)
+			return provider.SearchResult{}, nil
+		}
+	})
+	service := New(fake, nil)
 
 	snapshot, err := service.Snapshot(context.Background(), false)
 	if err != nil {
@@ -57,15 +76,14 @@ func TestSnapshotDiscoversBothQueuesWithReasons(t *testing.T) {
 }
 
 func TestSnapshotDeduplicatesAcrossOrganizations(t *testing.T) {
-	pr := github.PullRequest{ID: 42, Number: 5, Repo: "org/repo"}
-	client := fakeSearcher{search: func(_ context.Context, query string, _ int) (github.SearchResult, error) {
-		if !strings.Contains(query, "archived:false") || !strings.Contains(query, "org:") {
-			t.Errorf("query %q must exclude archived repositories and include an org filter", query)
+	pr := provider.PullRequest{ID: 42, Number: 5, Repo: "org/repo"}
+	fake := newFake(func(_ context.Context, q provider.Query, _ int) (provider.SearchResult, error) {
+		if q.Org == "" {
+			t.Errorf("query %#v must carry an org filter", q)
 		}
-		return github.SearchResult{Items: []github.PullRequest{pr}, TotalCount: 1}, nil
-	}}
-	service := New(client, github.Viewer{Login: "reviewer"}, []string{"alpha", "beta"})
-	queue, err := service.discover(context.Background(), "review-requested:reviewer")
+		return provider.SearchResult{Items: []provider.PullRequest{pr}, TotalCount: 1}, nil
+	})
+	queue, err := New(fake, []string{"alpha", "beta"}).discover(context.Background(), provider.ReviewRequested)
 	if err != nil {
 		t.Fatalf("discover() error = %v", err)
 	}
@@ -81,58 +99,36 @@ func TestSnapshotDeduplicatesAcrossOrganizations(t *testing.T) {
 }
 
 func TestSnapshotDoesNotTurnAPIErrorIntoEmptyQueue(t *testing.T) {
-	service := New(fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
-		return github.SearchResult{}, errors.New("permission_denied")
-	}}, github.Viewer{Login: "reviewer"}, nil)
-	_, err := service.Snapshot(context.Background(), true)
+	fake := newFake(func(context.Context, provider.Query, int) (provider.SearchResult, error) {
+		return provider.SearchResult{}, errors.New("permission_denied")
+	})
+	_, err := New(fake, nil).Snapshot(context.Background(), true)
 	if err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("Snapshot() error = %v, want permission error", err)
 	}
 }
 
-func TestDiscoverRejectsInvalidOrganization(t *testing.T) {
-	service := New(fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
-		t.Fatal("search should not run for an invalid organization")
-		return github.SearchResult{}, nil
-	}}, github.Viewer{Login: "reviewer"}, []string{"evil org"})
-	_, err := service.discover(context.Background(), "author:reviewer")
-	if err == nil || !strings.Contains(err.Error(), "invalid organization") {
-		t.Fatalf("discover() error = %v, want invalid organization error", err)
-	}
-}
-
-type fakeCIClient struct {
-	fakeSearcher
-	statuses map[int64]string
-	err      error
-	calls    int
-}
-
-func (f *fakeCIClient) CIStatuses(_ context.Context, prs []github.PullRequest) (map[int64]string, error) {
-	f.calls++
-	return f.statuses, f.err
+func twoPRs(context.Context, provider.Query, int) (provider.SearchResult, error) {
+	return provider.SearchResult{Items: []provider.PullRequest{
+		{ID: 1, Number: 1, Repo: "org/repo"},
+		{ID: 2, Number: 2, Repo: "org/other"},
+	}, TotalCount: 2}, nil
 }
 
 func TestSnapshotAttachesCIStatusWithSingleLookup(t *testing.T) {
-	pr := github.PullRequest{ID: 1, Number: 1, Repo: "org/repo"}
-	other := github.PullRequest{ID: 2, Number: 2, Repo: "org/other"}
-	client := &fakeCIClient{
-		fakeSearcher: fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
-			return github.SearchResult{Items: []github.PullRequest{pr, other}, TotalCount: 2}, nil
-		}},
-		statuses: map[int64]string{1: github.CIFailure},
-	}
-	snapshot, err := New(client, github.Viewer{Login: "reviewer"}, nil).Snapshot(context.Background(), false)
+	fake := newFake(twoPRs)
+	fake.statuses = map[int64]string{1: provider.CIFailure}
+	snapshot, err := New(fake, nil).Snapshot(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if client.calls != 1 {
-		t.Fatalf("CIStatuses calls = %d, want 1", client.calls)
+	if fake.ciCalls != 1 {
+		t.Fatalf("CIStatuses calls = %d, want 1", fake.ciCalls)
 	}
 	for _, item := range snapshot.ToReview.Items {
-		want := github.CIUnknown
+		want := provider.CIUnknown
 		if item.ID == 1 {
-			want = github.CIFailure
+			want = provider.CIFailure
 		}
 		if item.CI != want {
 			t.Fatalf("CI of PR %d = %q, want %q", item.ID, item.CI, want)
@@ -141,18 +137,13 @@ func TestSnapshotAttachesCIStatusWithSingleLookup(t *testing.T) {
 }
 
 func TestSnapshotSurvivesCILookupFailure(t *testing.T) {
-	pr := github.PullRequest{ID: 1, Number: 1, Repo: "org/repo"}
-	client := &fakeCIClient{
-		fakeSearcher: fakeSearcher{search: func(context.Context, string, int) (github.SearchResult, error) {
-			return github.SearchResult{Items: []github.PullRequest{pr}, TotalCount: 1}, nil
-		}},
-		err: errors.New("graphql down"),
-	}
-	snapshot, err := New(client, github.Viewer{Login: "reviewer"}, nil).Snapshot(context.Background(), false)
+	fake := newFake(twoPRs)
+	fake.ciErr = errors.New("graphql down")
+	snapshot, err := New(fake, nil).Snapshot(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v, CI failures must not fail the inbox", err)
 	}
-	if got := snapshot.ToReview.Items[0].CI; got != github.CIUnknown {
+	if got := snapshot.ToReview.Items[0].CI; got != provider.CIUnknown {
 		t.Fatalf("CI = %q, want unknown", got)
 	}
 }

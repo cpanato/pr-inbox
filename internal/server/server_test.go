@@ -8,20 +8,31 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/inbox"
+	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
-type emptySearcher struct{}
+type emptyProvider struct{ id string }
 
-func (emptySearcher) SearchPullRequests(context.Context, string, int) (github.SearchResult, error) {
-	return github.SearchResult{}, nil
+func (p emptyProvider) Info() provider.Info {
+	return provider.Info{ID: p.id, Name: p.id, Kind: "github", Host: "github.com", Viewer: provider.Viewer{ID: 1, Login: "reviewer"}}
+}
+
+func (emptyProvider) Search(context.Context, provider.Query, int) (provider.SearchResult, error) {
+	return provider.SearchResult{}, nil
+}
+
+func (emptyProvider) CIStatuses(context.Context, []provider.PullRequest) (map[int64]string, error) {
+	return nil, nil
 }
 
 func newTestHandler(t *testing.T, readOnly bool) (http.Handler, *url.URL) {
 	t.Helper()
-	service := inbox.New(emptySearcher{}, github.Viewer{ID: 1, Login: "reviewer"}, nil)
-	handler, launchURL, err := New(service, readOnly, "127.0.0.1:41234")
+	services := []*inbox.Service{
+		inbox.New(emptyProvider{id: "github"}, nil),
+		inbox.New(emptyProvider{id: "gitlab"}, nil),
+	}
+	handler, launchURL, err := New(services, readOnly, "127.0.0.1:41234")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -140,5 +151,32 @@ func TestRejectsUnexpectedHost(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("unexpected host status = %d, want 403", response.Code)
+	}
+}
+
+func TestInboxSelectsProvider(t *testing.T) {
+	handler, launchURL := newTestHandler(t, true)
+	bootstrap := httptest.NewRequest(http.MethodPost, "/api/bootstrap", nil)
+	bootstrap.Host = launchURL.Host
+	bootstrap.Header.Set("Origin", launchURL.Scheme+"://"+launchURL.Host)
+	bootstrap.Header.Set("X-Launch-Key", launchURL.Fragment[len("launch="):])
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, bootstrap)
+	cookie := recorder.Result().Cookies()[0]
+
+	for path, want := range map[string]int{
+		"/api/inbox":                  http.StatusOK,
+		"/api/inbox?provider=gitlab":  http.StatusOK,
+		"/api/inbox?provider=missing": http.StatusNotFound,
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Host = launchURL.Host
+		request.Header.Set("Origin", launchURL.Scheme+"://"+launchURL.Host)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Errorf("GET %s = %d, want %d", path, response.Code, want)
+		}
 	}
 }

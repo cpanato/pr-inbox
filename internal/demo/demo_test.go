@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/inbox"
+	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
 func TestDemoPopulatesBothQueuesWithCI(t *testing.T) {
-	service := inbox.New(New(), github.Viewer{ID: 1, Login: Login}, nil)
+	service := inbox.New(New(), nil)
 	snapshot, err := service.Snapshot(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
@@ -21,7 +21,7 @@ func TestDemoPopulatesBothQueuesWithCI(t *testing.T) {
 	for _, item := range snapshot.ToReview.Items {
 		states[item.CI] = true
 	}
-	for _, want := range []string{github.CISuccess, github.CIFailure, github.CIPending, github.CINone} {
+	for _, want := range []string{provider.CISuccess, provider.CIFailure, provider.CIPending, provider.CINone} {
 		if !states[want] {
 			t.Errorf("demo data has no %q CI example", want)
 		}
@@ -29,7 +29,7 @@ func TestDemoPopulatesBothQueuesWithCI(t *testing.T) {
 }
 
 func TestDemoHonorsOrgFilter(t *testing.T) {
-	service := inbox.New(New(), github.Viewer{ID: 1, Login: Login}, []string{"oss-tools"})
+	service := inbox.New(New(), []string{"oss-tools"})
 	snapshot, err := service.Snapshot(context.Background(), false)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
