@@ -9,7 +9,9 @@ authentication and serves an embedded browser interface on loopback.
 
 ![PR Inbox showing the To review queue with CI status, filters and review reasons](assets/screenshot.png)
 
-The screenshot uses sample data.
+![The same inbox on a GitLab tab, showing merge requests](assets/screenshot-gitlab.png)
+
+The screenshots use sample data (`--demo`). With more than one provider, each gets its own tab.
 
 ## Current implementation
 
@@ -40,10 +42,23 @@ Planned work, in order. Nothing below is implemented yet and the scope may chang
   - Inline comments
   - Saved preferences
 
+## Requirements
+
+- Go and Node.js 24 to build from source (not needed for a release binary).
+- To see **GitHub**: the [GitHub CLI (`gh`)](https://cli.github.com/) logged in with
+  `gh auth login`, or a `GITHUB_TOKEN` / `GH_TOKEN` environment variable.
+- To see **GitLab**: the [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) logged in
+  with `glab auth login`, or a personal access token with the `read_api` scope in
+  `GITLAB_TOKEN` (see [GitLab](#gitlab)).
+
+You only need the providers you use. GitHub and gitlab.com are tried automatically:
+a provider without credentials logs a warning in the terminal and its tab explains
+how to log in. If neither has credentials, the program exits with that explanation.
+
 ## Build and run
 
 ```sh
-gh auth login
+gh auth login      # and/or: glab auth login
 make build
 ./dist/pr-inbox
 ```
@@ -55,8 +70,9 @@ Useful options:
 | `./dist/pr-inbox` | Starts the local server and opens the inbox in your default browser. |
 | `./dist/pr-inbox --no-open` | Starts the server and only prints the launch URL, without opening a browser. Useful over SSH or to pick a specific browser. |
 | `./dist/pr-inbox --org ossf --org sigstore` | Limits discovery to the given organizations. Repeat `--org` for each one. Without it, PRs from every organization and account you can see are searched. |
-| `./dist/pr-inbox --gitlab gitlab.com --gitlab gitlab.example.com` | Also lists merge requests from GitLab. Repeat `--gitlab` for each instance (GitLab.com and any number of self-hosted ones). See [GitLab](#gitlab). |
-| `./dist/pr-inbox --no-github --gitlab gitlab.com` | Skips GitHub entirely, for people who only use GitLab. |
+| `./dist/pr-inbox --gitlab gitlab.example.com` | Also lists merge requests from a self-hosted GitLab. Repeat `--gitlab` for each instance. gitlab.com is added automatically. See [GitLab](#gitlab). |
+| `./dist/pr-inbox --no-github` | Skips GitHub, for people who only use GitLab. |
+| `./dist/pr-inbox --no-gitlab` | Skips the automatic gitlab.com tab. |
 | `./dist/pr-inbox --read-only` | Opt-in guard against write operations. It has no effect today: the current version is always read-only (it only reads from GitHub), so you don't need to pass it. It exists so that, once actions such as review submission are added, you can disable them explicitly. Defaults to off. |
 | `./dist/pr-inbox --demo` | Runs with built-in sample data instead of GitHub. No `gh` or authentication is needed and no network calls are made, so it is a safe way to try the interface (and how the README screenshot is produced). Can be combined with `--org` and `--no-open`, but not with `doctor`. |
 | `./dist/pr-inbox doctor` | Checks that `gh` is installed and authenticated and that the GitHub API (and every `--gitlab` host) is reachable, prints the accounts, then exits without starting the server. `--doctor` works too. |
@@ -73,8 +89,9 @@ credentials stay in the Go process and are never sent to the browser.
 
 ## GitLab
 
-`--gitlab HOST` adds a GitLab instance. It accepts GitLab.com or any self-hosted
-host, and can be repeated. Only HTTPS is supported.
+gitlab.com is added automatically; if no token is found you get a warning and a
+tab with login instructions (`--no-gitlab` turns it off). `--gitlab HOST` adds a
+self-hosted instance and can be repeated. Only HTTPS is supported.
 
 Create a [personal access token](https://docs.gitlab.com/user/profile/personal_access_tokens/)
 with the `read_api` scope and expose it through an environment variable. Tokens
@@ -92,7 +109,7 @@ another host.
 ```sh
 export GITLAB_TOKEN=glpat-...
 export GITLAB_TOKEN_GITLAB_EXAMPLE_COM=glpat-...
-./dist/pr-inbox --gitlab gitlab.com --gitlab gitlab.example.com
+./dist/pr-inbox --gitlab gitlab.example.com
 ```
 
 Notes:
@@ -102,8 +119,8 @@ Notes:
   `SSL_CERT_FILE` / `SSL_CERT_DIR` environment variables; certificate checks are never disabled.
 - Pipeline status needs one extra request per merge request, so GitLab queues with
   many items load more slowly than GitHub ones.
-- With more than one provider, the UI shows a tab per instance (GitHub first, unless
-  `--no-github`); each loads on first open. A single provider keeps the plain layout.
+- With more than one provider, the UI shows a tab per instance (GitHub first; providers without
+  credentials come last and show login instructions); each loads on first open. A single provider keeps the plain layout.
 - `--demo` includes a sample GitLab instance, so you can try the tabs without credentials.
 
 ## Development

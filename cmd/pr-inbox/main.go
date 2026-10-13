@@ -21,6 +21,7 @@ import (
 	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/gitlab"
 	"github.com/cpanato/pr-inbox/internal/inbox"
+	"github.com/cpanato/pr-inbox/internal/provider"
 	"github.com/cpanato/pr-inbox/internal/server"
 )
 
@@ -56,7 +57,8 @@ func run(args []string) error {
 	flags.Var(&orgs, "org", "limit GitHub discovery to an organization; may be repeated")
 	var gitlabHosts stringList
 	flags.Var(&gitlabHosts, "gitlab", "also show merge requests from a GitLab host such as gitlab.com or gitlab.example.com; may be repeated")
-	noGitHub := flags.Bool("no-github", false, "do not connect to GitHub (use with --gitlab)")
+	noGitHub := flags.Bool("no-github", false, "do not connect to GitHub")
+	noGitLab := flags.Bool("no-gitlab", false, "do not connect to gitlab.com automatically")
 	demoMode := flags.Bool("demo", false, "use built-in sample data instead of GitHub (no authentication needed)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -72,61 +74,21 @@ func run(args []string) error {
 		return errors.New("--demo cannot be combined with doctor")
 	}
 
-	if *demoMode && (len(gitlabHosts) > 0 || *noGitHub) {
-		return errors.New("--demo cannot be combined with --gitlab or --no-github")
+	if *demoMode && (len(gitlabHosts) > 0 || *noGitHub || *noGitLab) {
+		return errors.New("--demo cannot be combined with --gitlab, --no-github or --no-gitlab")
 	}
-	if *noGitHub && len(gitlabHosts) == 0 {
-		return errors.New("--no-github needs at least one --gitlab host")
+	if *noGitHub && *noGitLab && len(gitlabHosts) == 0 {
+		return errors.New("--no-github and --no-gitlab leave nothing to show; add a --gitlab host or drop a flag")
 	}
 
 	var services []*inbox.Service
 	if *demoMode {
 		services = append(services, inbox.New(demo.New(), orgs), inbox.New(demo.NewGitLab(), nil))
 	} else {
-		if !*noGitHub {
-			token, err := auth.Token(context.Background())
-			if err != nil {
-				if *doctor {
-					return err
-				}
-				return fmt.Errorf("%w; run `gh auth login` and try again", err)
-			}
-			client := github.NewClient(token)
-			viewer, err := client.Viewer(context.Background())
-			if err != nil {
-				if *doctor {
-					return fmt.Errorf("GitHub connectivity: %w", err)
-				}
-				return err
-			}
-			if *doctor {
-				fmt.Printf("GitHub CLI: available\nGitHub account: %s\nGitHub API: connected\n", viewer.Login)
-			}
-			services = append(services, inbox.New(github.NewProvider(client, viewer), orgs))
-		}
-		seen := make(map[string]bool)
-		for _, value := range gitlabHosts {
-			host, err := gitlab.NormalizeHost(value)
-			if err != nil {
-				return err
-			}
-			if seen[host] {
-				continue
-			}
-			seen[host] = true
-			token, err := gitlab.Token(context.Background(), host)
-			if err != nil {
-				return err
-			}
-			client := gitlab.NewClient(host, token)
-			viewer, err := client.Viewer(context.Background())
-			if err != nil {
-				return fmt.Errorf("GitLab %s: %w", host, err)
-			}
-			if *doctor {
-				fmt.Printf("GitLab %s account: %s\nGitLab %s API: connected\n", host, viewer.Login, host)
-			}
-			services = append(services, inbox.New(gitlab.NewProvider(client, viewer), nil))
+		var err error
+		services, err = connectProviders(context.Background(), orgs, gitlabHosts, *noGitHub, *noGitLab, *doctor)
+		if err != nil {
+			return err
 		}
 	}
 	if *doctor {
@@ -177,6 +139,80 @@ func run(args []string) error {
 		}
 		return fmt.Errorf("serve local inbox: %w", err)
 	}
+}
+
+func connectProviders(ctx context.Context, orgs, gitlabHosts []string, noGitHub, noGitLab, doctor bool) ([]*inbox.Service, error) {
+	var ready, missing []*inbox.Service
+	add := func(service *inbox.Service, unavailable *provider.Unavailable) {
+		if unavailable == nil {
+			ready = append(ready, service)
+			return
+		}
+		log.Printf("warning: %s", unavailable.Reason())
+		missing = append(missing, inbox.New(unavailable, nil))
+	}
+
+	if !noGitHub {
+		info := provider.Info{ID: "github", Name: "GitHub", Kind: "github", Host: "github.com"}
+		token, err := auth.Token(ctx)
+		if err != nil {
+			add(nil, provider.NewUnavailable(info, "auth_required: "+err.Error()))
+		} else {
+			client := github.NewClient(token)
+			viewer, err := client.Viewer(ctx)
+			if err != nil {
+				add(nil, provider.NewUnavailable(info, fmt.Sprintf("GitHub connectivity: %v", err)))
+			} else {
+				if doctor {
+					fmt.Printf("GitHub account: %s\nGitHub API: connected\n", viewer.Login)
+				}
+				add(inbox.New(github.NewProvider(client, viewer), orgs), nil)
+			}
+		}
+	}
+
+	hosts := make([]string, 0, len(gitlabHosts)+1)
+	if !noGitLab {
+		hosts = append(hosts, gitlab.DefaultHost)
+	}
+	seen := make(map[string]bool)
+	for _, value := range gitlabHosts {
+		host, err := gitlab.NormalizeHost(value)
+		if err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, host)
+	}
+	for _, host := range hosts {
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		info := provider.Info{ID: "gitlab:" + host, Name: host, Kind: "gitlab", Host: host}
+		if host == gitlab.DefaultHost {
+			info.Name = "GitLab"
+		}
+		token, err := gitlab.Token(ctx, host)
+		if err != nil {
+			add(nil, provider.NewUnavailable(info, "auth_required: "+err.Error()))
+			continue
+		}
+		client := gitlab.NewClient(host, token)
+		viewer, err := client.Viewer(ctx)
+		if err != nil {
+			add(nil, provider.NewUnavailable(info, fmt.Sprintf("GitLab %s: %v", host, err)))
+			continue
+		}
+		if doctor {
+			fmt.Printf("GitLab %s account: %s\nGitLab %s API: connected\n", host, viewer.Login, host)
+		}
+		add(inbox.New(gitlab.NewProvider(client, viewer), nil), nil)
+	}
+
+	if len(ready) == 0 {
+		return nil, errors.New("no provider is available; run `gh auth login` and/or `glab auth login`, or set GITHUB_TOKEN / GITLAB_TOKEN")
+	}
+	return append(ready, missing...), nil
 }
 
 func openBrowser(url string) error {
