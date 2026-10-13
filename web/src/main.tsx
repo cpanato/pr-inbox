@@ -158,7 +158,7 @@ function App() {
       <header className="topbar">
         <a className="brand" href="/" aria-label="PR Inbox home">
           <img className="brand-mark" src="/logo.svg" alt="" width="30" height="30" />
-          <span>inbox</span>
+          <span className="brand-name"><span className="brand-pr">PR</span> Inbox</span>
         </a>
         {session && (
           <div className="account">

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cpanato/pr-inbox/internal/auth"
+	"github.com/cpanato/pr-inbox/internal/demo"
 	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/inbox"
 	"github.com/cpanato/pr-inbox/internal/server"
@@ -52,6 +53,7 @@ func run(args []string) error {
 	doctor := flags.Bool("doctor", false, "check GitHub CLI authentication and GitHub connectivity")
 	var orgs stringList
 	flags.Var(&orgs, "org", "limit discovery to an organization; may be repeated")
+	demoMode := flags.Bool("demo", false, "use built-in sample data instead of GitHub (no authentication needed)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -62,28 +64,39 @@ func run(args []string) error {
 		return fmt.Errorf("unexpected argument %q", flags.Arg(0))
 	}
 	*doctor = *doctor || doctorCommand
+	if *demoMode && *doctor {
+		return errors.New("--demo cannot be combined with doctor")
+	}
 
-	token, err := auth.Token(context.Background())
-	if err != nil {
-		if *doctor {
+	var searcher inbox.Searcher
+	var viewer github.Viewer
+	if *demoMode {
+		searcher = demo.New()
+		viewer = github.Viewer{ID: 1, Login: demo.Login}
+	} else {
+		token, err := auth.Token(context.Background())
+		if err != nil {
+			if *doctor {
+				return err
+			}
+			return fmt.Errorf("%w; run `gh auth login` and try again", err)
+		}
+		client := github.NewClient(token)
+		viewer, err = client.Viewer(context.Background())
+		if err != nil {
+			if *doctor {
+				return fmt.Errorf("GitHub connectivity: %w", err)
+			}
 			return err
 		}
-		return fmt.Errorf("%w; run `gh auth login` and try again", err)
-	}
-	client := github.NewClient(token)
-	viewer, err := client.Viewer(context.Background())
-	if err != nil {
-		if *doctor {
-			return fmt.Errorf("GitHub connectivity: %w", err)
-		}
-		return err
+		searcher = client
 	}
 	if *doctor {
 		fmt.Printf("GitHub CLI: available\nGitHub account: %s\nGitHub API: connected\n", viewer.Login)
 		return nil
 	}
 
-	inboxService := inbox.New(client, viewer, orgs)
+	inboxService := inbox.New(searcher, viewer, orgs)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
