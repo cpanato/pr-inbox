@@ -3,6 +3,10 @@
 A local GitHub pull request inbox. The Go server reads the existing GitHub CLI
 authentication and serves an embedded browser interface on loopback.
 
+![PR Inbox showing the To review queue with CI status, filters and review reasons](assets/screenshot.png)
+
+The screenshot uses sample data.
+
 ## Current implementation
 
 Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
