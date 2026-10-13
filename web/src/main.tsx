@@ -195,8 +195,14 @@ function App() {
         </a>
         {session && (
           <div className="account">
-            <span className="connection"><i /> {hostName} connected</span>
-            <span className="account-login">@{provider?.viewer ?? session.viewer}</span>
+            {(provider?.viewer ?? session.viewer) ? (
+              <>
+                <span className="connection"><i /> {hostName} connected</span>
+                <span className="account-login">@{provider?.viewer ?? session.viewer}</span>
+              </>
+            ) : (
+              <span className="connection"><i /> {hostName} not signed in</span>
+            )}
             {(session.readOnly || !session.mutationsAvailable) && <span className="mode-badge">Read only</span>}
           </div>
         )}
@@ -251,7 +257,7 @@ function App() {
           <>
             <div className="freshness">
               <span><i className="fresh-dot" /> Last updated {new Date(inbox.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-              <span className="coverage">{inbox.teamCoverage}</span>
+              <span className="coverage">{isGitLab ? inbox.teamCoverage.replace("team-request", "group-request") : inbox.teamCoverage}</span>
             </div>
             <nav className="tabs" aria-label="Queues">
               <button className={activeTab === "review" ? "tab active" : "tab"} onClick={() => setActiveTab("review")}>
@@ -266,7 +272,7 @@ function App() {
               <div className="queue-heading">
                 <div>
                   <h2>{activeTab === "review" ? "Waiting for your review" : "Authored by you"}</h2>
-                  <p>{queue?.ordering}</p>
+                  <p>{isGitLab ? queue?.ordering.replace("PR", "merge request") : queue?.ordering}</p>
                 </div>
                 <div className="queue-controls">
                   <label className="visually-hidden" htmlFor="org-filter">Filter by organization</label>
@@ -285,21 +291,21 @@ function App() {
                       <option key={name} value={name}>{activeOrg ? name.slice(activeOrg.length + 1) : name} ({count})</option>
                     ))}
                   </select>
-                  <label className="visually-hidden" htmlFor="sort-order">Sort pull requests</label>
+                  <label className="visually-hidden" htmlFor="sort-order">Sort {nounPlural}</label>
                   <select id="sort-order" value={order} onChange={(event) => setOrder(event.target.value as "oldest" | "recent")}>
                     <option value="oldest">Oldest first</option>
                     <option value="recent">Recently updated</option>
                   </select>
-                  <label className="visually-hidden" htmlFor="filter">Filter pull requests</label>
+                  <label className="visually-hidden" htmlFor="filter">Filter {nounPlural}</label>
                   <input id="filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter inbox" />
                 </div>
               </div>
 
               {queue?.truncated && (
                 <div className="notice truncation-notice" role="status">
-                  <strong>Not all pull requests are shown.</strong>{" "}
-                  This queue has {queue.totalCount} matching PRs, but only the first {queue.items.length} are loaded
-                  (limit of {queue.items.length} per queue). Some PRs, including possibly older ones, may be missing.
+                  <strong>Not all {nounPlural} are shown.</strong>{" "}
+                  This queue has {queue.totalCount} matching {nounPlural}, but only the first {queue.items.length} are loaded
+                  (limit of {queue.items.length} per queue). Some {nounPlural}, including possibly older ones, may be missing.
                   {isGitLab
                     ? <>The group and project filters above only filter what is already loaded.</>
                     : <>Restart with <code>--org ORG</code> to narrow discovery to the organizations you care about.
@@ -309,8 +315,8 @@ function App() {
               {filtered.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon" aria-hidden="true">{hasFilters ? "⌕" : "✓"}</div>
-                  <h3>{hasFilters ? "No matching pull requests" : "You're all caught up"}</h3>
-                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : "There are no open pull requests in this queue right now."}</p>
+                  <h3>{hasFilters ? `No matching ${nounPlural}` : "You're all caught up"}</h3>
+                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : `There are no open ${nounPlural} in this queue right now.`}</p>
                 </div>
               ) : (
                 <ul className="pr-list">
