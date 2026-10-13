@@ -21,6 +21,13 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # react, react-dom and their typings must always move together.
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
       routine-updates:
         update-types:
           - minor
