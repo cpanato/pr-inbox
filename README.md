@@ -65,3 +65,21 @@ Releases are built by GitHub Actions when a `v*` tag is pushed. GoReleaser
 produces archives for Linux, macOS, and Windows on amd64 and arm64, plus a
 SHA-256 checksum file. To test a release locally, run `make release-snapshot`
 with GoReleaser installed.
+
+### Verifying a release
+
+`checksums.txt` is signed keylessly with [cosign](https://github.com/sigstore/cosign)
+from the release workflow. Download the archive, `checksums.txt` and
+`checksums.txt.sigstore.json` from the release, then:
+
+```sh
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/cpanato/pr-inbox/\.github/workflows/release\.yaml@refs/tags/v.+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+```
+
+The first command proves the checksum file was produced by this repository's
+release workflow; the second proves your archive matches it.
