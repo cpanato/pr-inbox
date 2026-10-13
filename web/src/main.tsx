@@ -12,6 +12,7 @@ type PullRequest = {
   created_at: string;
   updated_at: string;
   draft: boolean | null;
+  ci: CIState;
   reasons: string[];
 };
 
@@ -284,6 +285,16 @@ function countBy(items: PullRequest[], key: (item: PullRequest) => string): [str
   return [...counts.entries()].sort((left, right) => left[0].localeCompare(right[0]));
 }
 
+type CIState = "success" | "failure" | "pending" | "none" | "unknown";
+
+const ciLabels: Record<CIState, { text: string; help: string }> = {
+  success: { text: "CI passing", help: "All checks on the latest commit passed." },
+  failure: { text: "CI failing", help: "At least one check on the latest commit failed." },
+  pending: { text: "CI running", help: "Checks on the latest commit are still running or pending." },
+  none: { text: "No CI", help: "No checks or statuses were reported for the latest commit." },
+  unknown: { text: "CI unknown", help: "The CI status could not be loaded from GitHub." },
+};
+
 const reasonHelp: Record<string, string> = {
   "Requested from you": "You were directly asked to review this pull request.",
   "Authored by you": "You opened this pull request.",
@@ -305,6 +316,9 @@ function PRCard({ item }: { item: PullRequest }) {
       </div>
       <div className="pr-details">
         <span className={item.draft === true ? "draft-label" : "state-label"}>{draft}</span>
+        <span className={`ci-label ci-${item.ci ?? "unknown"}`} title={ciLabels[item.ci ?? "unknown"].help}>
+          {ciLabels[item.ci ?? "unknown"].text}
+        </span>
         {item.reasons.map((reason) => (
           <span className="reason-label" key={reason} title={reasonHelp[reason]}>{reason}</span>
         ))}
