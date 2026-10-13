@@ -34,7 +34,7 @@ Planned work, in order. Nothing below is implemented yet and the scope may chang
 - [ ] **GitLab support:**
   - [x] Provider-neutral internal model (pull request / merge request)
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
-  - [ ] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
+  - [x] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
 - [ ] **Later:**
   - Team review-request coverage
   - Inline comments
@@ -102,8 +102,9 @@ Notes:
   `SSL_CERT_FILE` / `SSL_CERT_DIR` environment variables; certificate checks are never disabled.
 - Pipeline status needs one extra request per merge request, so GitLab queues with
   many items load more slowly than GitHub ones.
-- The first configured provider (GitHub unless `--no-github`) is the one shown in
-  the UI for now; the per-instance tabs are the next step.
+- With more than one provider, the UI shows a tab per instance (GitHub first, unless
+  `--no-github`); each loads on first open. A single provider keeps the plain layout.
+- `--demo` includes a sample GitLab instance, so you can try the tabs without credentials.
 
 ## Development
 

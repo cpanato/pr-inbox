@@ -45,6 +45,9 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .freshness { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 12px; }
 .freshness > span:first-child { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .coverage { text-align: right; }
+.providers { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; }
+.provider { padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #4b5668; font-size: 13px; font-weight: 600; cursor: pointer; }
+.provider.active { border-color: var(--blue); background: #eef2ff; color: var(--blue); }
 .tabs { display: flex; gap: 27px; border-bottom: 1px solid var(--line); }
 .tab { display: flex; align-items: center; gap: 9px; position: relative; padding: 12px 0 14px; border: 0; background: transparent; color: #737c8a; font-size: 13px; font-weight: 600; }
 .tab.active { color: #27334b; }

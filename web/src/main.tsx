@@ -31,7 +31,16 @@ type Inbox = {
   teamCoverage: string;
 };
 
+type ProviderInfo = {
+  id: string;
+  name: string;
+  kind: "github" | "gitlab";
+  host: string;
+  viewer: string;
+};
+
 type Session = {
+  providers: ProviderInfo[];
   viewer: string;
   readOnly: boolean;
   mutationsAvailable: boolean;
@@ -82,32 +91,34 @@ async function bootstrap(): Promise<string> {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [csrfToken, setCsrfToken] = useState("");
-  const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [inboxes, setInboxes] = useState<Record<string, Inbox>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [activeProvider, setActiveProvider] = useState("");
   const [activeTab, setActiveTab] = useState<"review" | "mine">("review");
   const [query, setQuery] = useState("");
   const [org, setOrg] = useState("");
   const [repo, setRepo] = useState("");
   const [order, setOrder] = useState<"oldest" | "recent">("oldest");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [loadingIds, setLoadingIds] = useState<string[]>([]);
+  const [startupError, setStartupError] = useState("");
+  const [booting, setBooting] = useState(true);
 
-  const loadInbox = useCallback(async (force = false, token = "") => {
-    setError("");
-    setRefreshing(force);
+  const loadInbox = useCallback(async (providerId: string, force = false, token = "") => {
+    setErrors((current) => ({ ...current, [providerId]: "" }));
+    setLoadingIds((current) => [...current, providerId]);
+    const suffix = `?provider=${encodeURIComponent(providerId)}`;
     try {
       const data = await request<Inbox>(
-        force ? "/api/refresh" : "/api/inbox",
+        (force ? "/api/refresh" : "/api/inbox") + suffix,
         force ? { method: "POST" } : {},
         force ? token : undefined,
       );
-      setInbox(data);
+      setInboxes((current) => ({ ...current, [providerId]: data }));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Could not load the inbox.";
-      setError(message);
+      setErrors((current) => ({ ...current, [providerId]: message }));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoadingIds((current) => current.filter((id) => id !== providerId));
     }
   }, []);
 
@@ -121,15 +132,37 @@ function App() {
         const identity = await request<Session>("/api/session");
         if (!active) return;
         setSession(identity);
-        await loadInbox(false, token);
+        const first = identity.providers[0]?.id ?? "";
+        setActiveProvider(first);
+        setBooting(false);
+        await loadInbox(first, false, token);
       } catch (reason) {
         if (!active) return;
-        setError(reason instanceof Error ? reason.message : "Could not connect to PR Inbox.");
-        setLoading(false);
+        setStartupError(reason instanceof Error ? reason.message : "Could not connect to PR Inbox.");
+        setBooting(false);
       }
     })();
     return () => { active = false; };
   }, [loadInbox]);
+
+  const providers = session?.providers ?? [];
+  const provider = providers.find((item) => item.id === activeProvider);
+  const inbox = inboxes[activeProvider] ?? null;
+  const error = startupError || errors[activeProvider] || "";
+  const loading = loadingIds.includes(activeProvider);
+  const refreshing = loading && inbox !== null;
+  const isGitLab = provider?.kind === "gitlab";
+  const hostName = provider?.name ?? "GitHub";
+  const noun = isGitLab ? "merge request" : "pull request";
+  const nounPlural = isGitLab ? "merge requests" : "pull requests";
+
+  const selectProvider = (id: string) => {
+    setActiveProvider(id);
+    setOrg("");
+    setRepo("");
+    setQuery("");
+    if (!inboxes[id] && !loadingIds.includes(id)) void loadInbox(id, false, csrfToken);
+  };
 
   const queue = activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
   const queueItems = queue?.items ?? [];
@@ -149,8 +182,8 @@ function App() {
       ? Date.parse(right.updated_at) - Date.parse(left.updated_at)
       : Date.parse(left.created_at) - Date.parse(right.created_at));
 
-  if (loading && !session && !error) {
-    return <main className="center-state"><span className="spinner" />Connecting to GitHub…</main>;
+  if (booting && !startupError) {
+    return <main className="center-state"><span className="spinner" />Connecting…</main>;
   }
 
   return (
@@ -162,8 +195,8 @@ function App() {
         </a>
         {session && (
           <div className="account">
-            <span className="connection"><i /> GitHub connected</span>
-            <span className="account-login">@{session.viewer}</span>
+            <span className="connection"><i /> {hostName} connected</span>
+            <span className="account-login">@{provider?.viewer ?? session.viewer}</span>
             {(session.readOnly || !session.mutationsAvailable) && <span className="mode-badge">Read only</span>}
           </div>
         )}
@@ -173,28 +206,44 @@ function App() {
         <section className="page-heading">
           <div>
             <p className="eyebrow">YOUR WORKSPACE</p>
-            <h1>Pull request inbox</h1>
+            <h1>{isGitLab ? "Merge request inbox" : "Pull request inbox"}</h1>
             <p className="subheading">A clear view of what needs your attention.</p>
           </div>
-          <button className="refresh-button" type="button" onClick={() => void loadInbox(true, csrfToken)} disabled={!session || refreshing}>
+          <button className="refresh-button" type="button" onClick={() => void loadInbox(activeProvider, true, csrfToken)} disabled={!session || loading}>
             <span aria-hidden="true" className={refreshing ? "refresh-icon spinning" : "refresh-icon"}>↻</span>
             {refreshing ? "Refreshing" : "Refresh"}
           </button>
         </section>
+
+        {providers.length > 1 && (
+          <nav className="providers" aria-label="Providers">
+            {providers.map((item) => (
+              <button
+                key={item.id}
+                className={item.id === activeProvider ? "provider active" : "provider"}
+                onClick={() => selectProvider(item.id)}
+                title={item.host}
+              >
+                {item.name}
+              </button>
+            ))}
+          </nav>
+        )}
 
         {error && (
           <section className="notice error-notice" role="alert">
             <strong>Inbox unavailable</strong>
             <p>{error}</p>
             {error.includes("gh auth login") && <code>gh auth login</code>}
+            {isGitLab && error.includes("auth_required") && <code>glab auth login --hostname {provider?.host}</code>}
           </section>
         )}
 
         {loading && !inbox && !error && (
           <section className="loading-panel" role="status" aria-live="polite">
             <div className="loading-bar" aria-hidden="true"><i /></div>
-            <strong>Loading your pull requests…</strong>
-            <p>Searching GitHub for PRs that need your review and PRs you authored. This can take a few seconds.</p>
+            <strong>Loading your {nounPlural}…</strong>
+            <p>Searching {hostName} for {nounPlural} that need your review and the ones you authored. This can take a few seconds.</p>
           </section>
         )}
 
@@ -204,12 +253,12 @@ function App() {
               <span><i className="fresh-dot" /> Last updated {new Date(inbox.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
               <span className="coverage">{inbox.teamCoverage}</span>
             </div>
-            <nav className="tabs" aria-label="Pull request queues">
+            <nav className="tabs" aria-label="Queues">
               <button className={activeTab === "review" ? "tab active" : "tab"} onClick={() => setActiveTab("review")}>
                 To review <span className="count">{inbox.toReview.totalCount}</span>
               </button>
               <button className={activeTab === "mine" ? "tab active" : "tab"} onClick={() => setActiveTab("mine")}>
-                My PRs <span className="count">{inbox.myPRs.totalCount}</span>
+                {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox.myPRs.totalCount}</span>
               </button>
             </nav>
 
@@ -251,8 +300,10 @@ function App() {
                   <strong>Not all pull requests are shown.</strong>{" "}
                   This queue has {queue.totalCount} matching PRs, but only the first {queue.items.length} are loaded
                   (limit of {queue.items.length} per queue). Some PRs, including possibly older ones, may be missing.
-                  Restart with <code>--org ORG</code> to narrow discovery to the organizations you care about.
-                  The organization and repository filters above only filter what is already loaded.
+                  {isGitLab
+                    ? <>The group and project filters above only filter what is already loaded.</>
+                    : <>Restart with <code>--org ORG</code> to narrow discovery to the organizations you care about.
+                      The organization and repository filters above only filter what is already loaded.</>}
                 </div>
               )}
               {filtered.length === 0 ? (
@@ -263,7 +314,7 @@ function App() {
                 </div>
               ) : (
                 <ul className="pr-list">
-                  {filtered.map((item) => <PRCard key={item.id} item={item} />)}
+                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} />)}
                 </ul>
               )}
             </section>
@@ -300,7 +351,7 @@ const reasonHelp: Record<string, string> = {
   "Authored by you": "You opened this pull request.",
 };
 
-function PRCard({ item }: { item: PullRequest }) {
+function PRCard({ item, noun, hostName }: { item: PullRequest; noun: string; hostName: string }) {
   const draft = item.draft === true ? "Draft" : item.draft === false ? "Ready for review" : "Draft status unavailable";
   return (
     <li className="pr-card">
@@ -323,7 +374,7 @@ function PRCard({ item }: { item: PullRequest }) {
           <span className="reason-label" key={reason} title={reasonHelp[reason]}>{reason}</span>
         ))}
       </div>
-      <a className="open-link" href={item.html_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.repo} pull request ${item.number} on GitHub`}>↗</a>
+      <a className="open-link" href={item.html_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.repo} ${noun} ${item.number} on ${hostName}`}>↗</a>
     </li>
   );
 }

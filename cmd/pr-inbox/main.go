@@ -81,7 +81,7 @@ func run(args []string) error {
 
 	var services []*inbox.Service
 	if *demoMode {
-		services = append(services, inbox.New(demo.New(), orgs))
+		services = append(services, inbox.New(demo.New(), orgs), inbox.New(demo.NewGitLab(), nil))
 	} else {
 		if !*noGitHub {
 			token, err := auth.Token(context.Background())

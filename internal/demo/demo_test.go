@@ -2,6 +2,7 @@ package demo
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cpanato/pr-inbox/internal/inbox"
@@ -36,5 +37,19 @@ func TestDemoHonorsOrgFilter(t *testing.T) {
 	}
 	if len(snapshot.ToReview.Items) != 1 || snapshot.ToReview.Items[0].Repo != "oss-tools/cli" {
 		t.Fatalf("org filter result = %#v", snapshot.ToReview.Items)
+	}
+}
+
+func TestGitLabDemoIsPresentedAsGitLab(t *testing.T) {
+	client := NewGitLab()
+	if info := client.Info(); info.Kind != "gitlab" || info.ID == New().Info().ID {
+		t.Fatalf("info = %#v", info)
+	}
+	snapshot, err := inbox.New(client, nil).Snapshot(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.ToReview.Items) == 0 || !strings.Contains(snapshot.ToReview.Items[0].HTMLURL, "/-/merge_requests/") {
+		t.Fatalf("review queue = %#v", snapshot.ToReview.Items)
 	}
 }
