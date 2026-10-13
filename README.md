@@ -14,9 +14,27 @@ The screenshot uses sample data.
 ## Current implementation
 
 Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
-organization and repository filters, capped discovery, explicit direct-request-only coverage,
-and a read-only local UI. Pull request details, checks, diffs, saved preferences,
-and review submission are not implemented yet.
+organization and repository filters, CI status labels, capped discovery, explicit
+direct-request-only coverage, and a read-only local UI.
+
+## Roadmap
+
+Planned work, in order. Nothing below is implemented yet and the scope may change.
+
+- [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
+- [ ] **Milestone 2 – Review workspace:**
+  - Pull request description and discussion
+  - Diffs pinned to a commit, with large, binary and truncated diff handling
+  - Check summaries
+  - Local review drafts and "viewed" markers
+- [ ] **Milestone 3 – Overall review writes:**
+  - Submit an overall review (approve, comment, request changes) after an explicit confirmation
+  - Safety checks that the head commit is unchanged and no pending review exists
+  - Operation tracking and refresh after submitting
+- [ ] **Later:**
+  - Team review-request coverage
+  - Inline comments
+  - Saved preferences
 
 ## Build and run
 
