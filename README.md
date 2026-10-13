@@ -31,6 +31,11 @@ Planned work, in order. Nothing below is implemented yet and the scope may chang
   - Submit an overall review (approve, comment, request changes) after an explicit confirmation
   - Safety checks that the head commit is unchanged and no pending review exists
   - Operation tracking and refresh after submitting
+- [ ] **GitLab support:**
+  - Provider-neutral internal model (pull request / merge request) and a config file for providers
+  - GitLab.com merge requests (review requested and authored) with pipeline status
+  - Self-hosted GitLab instances (one or more), each with its own token and optional custom CA
+  - One tab per provider instance in the UI; a single GitHub provider keeps the current layout
 - [ ] **Later:**
   - Team review-request coverage
   - Inline comments
