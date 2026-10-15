@@ -24,7 +24,7 @@ func TestDetailPinsChecksToInspectedCommit(t *testing.T) {
 					if r.Method != http.MethodGet {
 						t.Error("detail must be read-only")
 					}
-					_, _ = w.Write([]byte(`{"id":42,"number":7,"title":"Fresh title","body":"<script>alert(1)</script>","state":"closed","merged":true,"draft":false,"user":{"login":"alice"},"head":{"ref":"feature","sha":"inspected-sha"},"base":{"ref":"main"}}`))
+					_, _ = w.Write([]byte(`{"id":42,"number":7,"title":"Fresh title","body":"<script>alert(1)</script>","state":"closed","changed_files":12,"merged":true,"draft":false,"user":{"login":"alice"},"head":{"ref":"feature","sha":"inspected-sha"},"base":{"ref":"main","sha":"base-sha"}}`))
 				case "/graphql":
 					var body struct {
 						Variables map[string]string `json:"variables"`
@@ -57,7 +57,7 @@ func TestDetailPinsChecksToInspectedCommit(t *testing.T) {
 			if ciFailure {
 				wantCI = provider.CIUnknown
 			}
-			if detail.Title != "Fresh title" || detail.Description != "<script>alert(1)</script>" || detail.State != "merged" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.CI != wantCI || calls != 2 {
+			if detail.Title != "Fresh title" || detail.Description != "<script>alert(1)</script>" || detail.State != "merged" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.CI != wantCI || detail.DiffSource.BaseSHA != "base-sha" || detail.DiffSource.ChangedFiles != 12 || calls != 2 {
 				t.Fatalf("detail=%+v calls=%d", detail, calls)
 			}
 		})

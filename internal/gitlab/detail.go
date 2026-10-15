@@ -25,6 +25,11 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 		TargetBranch string `json:"target_branch"`
 		SHA          string `json:"sha"`
 		State        string `json:"state"`
+		DiffRefs     struct {
+			BaseSHA  string `json:"base_sha"`
+			HeadSHA  string `json:"head_sha"`
+			StartSHA string `json:"start_sha"`
+		} `json:"diff_refs"`
 		HeadPipeline *struct {
 			Status string `json:"status"`
 			SHA    string `json:"sha"`
@@ -46,5 +51,9 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 			pr.CI = pipelineState(response.HeadPipeline.Status)
 		}
 	}
-	return provider.Detail{PullRequest: pr, Description: response.Description, SourceBranch: response.SourceBranch, TargetBranch: response.TargetBranch, HeadSHA: response.SHA, State: response.State}, nil
+	source := provider.DiffSource{ChangedFiles: -1}
+	if response.DiffRefs.HeadSHA == response.SHA {
+		source.BaseSHA, source.StartSHA = response.DiffRefs.BaseSHA, response.DiffRefs.StartSHA
+	}
+	return provider.Detail{DiffSource: source, PullRequest: pr, Description: response.Description, SourceBranch: response.SourceBranch, TargetBranch: response.TargetBranch, HeadSHA: response.SHA, State: response.State}, nil
 }

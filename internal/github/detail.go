@@ -20,16 +20,17 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 		return provider.Detail{}, fmt.Errorf("invalid discovered repository or pull request")
 	}
 	var response struct {
-		ID        int64     `json:"id"`
-		Number    int       `json:"number"`
-		Title     string    `json:"title"`
-		Body      string    `json:"body"`
-		State     string    `json:"state"`
-		Merged    bool      `json:"merged"`
-		Draft     *bool     `json:"draft"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		User      struct {
+		ID           int64     `json:"id"`
+		Number       int       `json:"number"`
+		Title        string    `json:"title"`
+		Body         string    `json:"body"`
+		State        string    `json:"state"`
+		ChangedFiles int       `json:"changed_files"`
+		Merged       bool      `json:"merged"`
+		Draft        *bool     `json:"draft"`
+		CreatedAt    time.Time `json:"created_at"`
+		UpdatedAt    time.Time `json:"updated_at"`
+		User         struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		Head struct {
@@ -38,6 +39,7 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
+			SHA string `json:"sha"`
 		} `json:"base"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(repo), pr.Number)
@@ -61,5 +63,5 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 	if response.Merged {
 		state = "merged"
 	}
-	return provider.Detail{PullRequest: pr, Description: response.Body, SourceBranch: response.Head.Ref, TargetBranch: response.Base.Ref, HeadSHA: response.Head.SHA, State: state}, nil
+	return provider.Detail{PullRequest: pr, Description: response.Body, SourceBranch: response.Head.Ref, TargetBranch: response.Base.Ref, HeadSHA: response.Head.SHA, State: state, DiffSource: provider.DiffSource{BaseSHA: response.Base.SHA, ChangedFiles: response.ChangedFiles}}, nil
 }

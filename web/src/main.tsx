@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { request } from "./api";
+import { DiffWorkspace } from "./DiffWorkspace";
 
 type PullRequest = {
   id: number;
@@ -18,6 +20,7 @@ type PullRequest = {
 
 type Detail = PullRequest & {
   description: string;
+  revision: string;
   sourceBranch: string;
   targetBranch: string;
   headSHA: string;
@@ -55,30 +58,6 @@ type Session = {
   mutationsAvailable: boolean;
   host: string;
 };
-
-type APIError = Error & { code?: string };
-
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-  csrfToken?: string,
-): Promise<T> {
-  const headers = new Headers(options.headers);
-  if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
-  if (options.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
-    ...options,
-    headers,
-    credentials: "same-origin",
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    const error = new Error(payload.message ?? "The request failed.") as APIError;
-    error.code = payload.error;
-    throw error;
-  }
-  return payload as T;
-}
 
 async function bootstrap(): Promise<void> {
   const parameters = new URLSearchParams(window.location.hash.slice(1));
@@ -403,6 +382,7 @@ function DetailPanel({ item, provider, onClose }: { item: PullRequest; provider:
             <p className="detail-format-note">Shown as plain text. Discussion and full check results are available on {provider.name}.</p>
             <div className="description-text">{detail.description || "No description provided."}</div>
           </section>
+          <DiffWorkspace key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={() => setAttempt((value) => value + 1)} />
         </>
       )}
     </dialog>

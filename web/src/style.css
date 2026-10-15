@@ -145,3 +145,30 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .detail-loading { color: var(--muted); }
 .pr-title:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 @media (max-width: 480px) { .detail-dialog { padding: 20px; } .detail-metadata div { grid-template-columns: 1fr; gap: 6px; } }
+
+.detail-dialog { width: min(1120px, calc(100vw - 32px)); }
+.diff-section { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 24px; }
+.diff-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.diff-heading h3 { margin: 0; font-size: 16px; }
+.diff-section a { color: var(--blue); }
+.diff-warning { margin-bottom: 16px; }
+.diff-workspace { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; }
+.diff-files { max-height: 500px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; align-self: start; }
+.diff-file { display: block; width: 100%; padding: 10px 12px; background: #fff; color: #293448; border: 0; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
+.diff-file:last-child { border-bottom: 0; }
+.diff-file.active { background: #eef2ff; box-shadow: inset 3px 0 var(--blue); }
+.diff-file span { display: block; font-size: 12px; }
+.diff-file small { display: block; margin-top: 5px; color: #647080; font-size: 10px; }
+.diff-patch { min-width: 0; }
+.diff-patch-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.diff-patch-heading h4 { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.diff-status { padding: 3px 7px; background: #f0f2f5; color: #536273; border-radius: 5px; font-size: 11px; }
+.diff-text-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #647080; }
+.unified-diff { margin: 10px 0 0; max-height: 550px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; overflow-wrap: normal; tab-size: 4; }
+.unified-diff code { display: block; min-width: max-content; }
+.unified-diff span { display: block; padding: 0 10px; }
+.diff-add { color: #116329; background: #dafbe1; }
+.diff-remove { color: #82071e; background: #ffebe9; }
+.diff-hunk { color: #0550ae; background: #ddf4ff; }
+.diff-context { color: #293448; }
+@media (max-width: 750px) { .diff-workspace { grid-template-columns: 1fr; } .diff-files { max-height: 180px; } }
