@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/cpanato/pr-inbox/internal/inbox"
+	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
 const (
@@ -129,7 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
-	case "/api/detail":
+	case "/api/detail", "/api/diff":
 		if !h.authorize(w, r, false) {
 			return
 		}
@@ -263,7 +264,16 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "invalid_id", "A valid change request ID is required.")
 		return
 	}
-	result, err := service.Detail(r.Context(), id)
+	var result any
+	if r.URL.Path == "/api/diff" {
+		result, err = service.Diff(r.Context(), id, r.URL.Query().Get("revision"))
+	} else {
+		result, err = service.Detail(r.Context(), id)
+	}
+	if errors.Is(err, provider.ErrRevisionUnavailable) {
+		h.writeError(w, http.StatusConflict, "revision_unavailable", err.Error())
+		return
+	}
 	if errors.Is(err, inbox.ErrNotFound) {
 		h.writeError(w, http.StatusNotFound, "unknown_change_request", err.Error())
 		return

@@ -21,6 +21,7 @@ func TestDetailUsesDiscoveredProjectAndChecksPipelineRevision(t *testing.T) {
 				body["source_branch"] = "feature"
 				body["target_branch"] = "main"
 				body["sha"] = "inspected-sha"
+				body["diff_refs"] = map[string]string{"head_sha": "inspected-sha", "base_sha": "base-sha", "start_sha": "target-sha"}
 				body["state"] = "opened"
 				body["head_pipeline"] = map[string]string{"status": "success", "sha": pipelineSHA}
 				_ = json.NewEncoder(w).Encode(body)
@@ -34,7 +35,7 @@ func TestDetailUsesDiscoveredProjectAndChecksPipelineRevision(t *testing.T) {
 			if pipelineSHA != "inspected-sha" {
 				want = provider.CIUnknown
 			}
-			if detail.CI != want || detail.Description != "Description" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.Author != "alice" || detail.State != "opened" {
+			if detail.CI != want || detail.Description != "Description" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.Author != "alice" || detail.State != "opened" || detail.DiffSource.BaseSHA != "base-sha" || detail.DiffSource.StartSHA != "target-sha" {
 				t.Fatalf("detail=%+v", detail)
 			}
 		})

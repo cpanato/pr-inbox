@@ -20,7 +20,18 @@ organization and repository filters, CI status labels, capped discovery, explici
 direct-request-only coverage, and a read-only local UI. Clicking a PR/MR title
 opens a detail panel with its description (plain text), author, branches, head
 commit, and CI summary for that commit. The panel is available for GitHub,
-GitLab, and demo data; discussion and full check results remain on the provider.
+GitLab, and demo data. A file browser shows unified diffs pinned to the inspected
+revision, with additions, deletions, renames, and a plain-text option. Discussion
+and full check results remain on the provider.
+
+Diffs are limited to 300 files and 5 MiB of patch text, with a 256 KiB / 10,000-line
+limit per file. Binary, missing, oversized, and incomplete patches are labeled
+explicitly and linked to the provider. GitHub comparisons use captured base and
+head SHAs; GitLab uses a matching stored diff version. New pushes do not silently
+replace the displayed revision. Use **Reload details** to inspect a newer one.
+GitLab searches the most recent 100 diff versions; an unavailable version asks
+you to reload details rather than substituting another diff. Inspected revision
+references are kept only in memory (the most recent 64 per provider).
 
 ## Roadmap
 
@@ -30,7 +41,7 @@ Work in delivery order. Unchecked items are planned and the scope may change.
 - [ ] **Milestone 2 – Review workspace:**
   - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
   - Discussion
-  - Diffs pinned to a commit, with large, binary and truncated diff handling
+  - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
   - Check summaries
   - Local review drafts and "viewed" markers
 - [ ] **Milestone 3 – Overall review writes:**

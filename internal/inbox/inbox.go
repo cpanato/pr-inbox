@@ -19,9 +19,11 @@ type Service struct {
 	provider provider.Provider
 	orgs     []string
 
-	mu       sync.Mutex
-	cached   *Snapshot
-	cachedAt time.Time
+	mu            sync.Mutex
+	cached        *Snapshot
+	cachedAt      time.Time
+	revisions     map[string]provider.DiffSource
+	revisionOrder []string
 }
 
 type PullRequest struct {
