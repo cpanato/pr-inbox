@@ -481,3 +481,82 @@ func TestDiscussionRouteDiscoveryPaginationAndAuthentication(t *testing.T) {
 		}
 	}
 }
+
+func TestChecksRouteUsesInspectedRevisionAndRequiresSession(t *testing.T) {
+	handler, launch, err := New([]*inbox.Service{inbox.New(demo.New(), nil), inbox.New(demo.NewGitLab(), nil)}, true, "127.0.0.1:41234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchURL, err := url.Parse(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := launchURL.Scheme + "://" + launchURL.Host
+	bootstrap := httptest.NewRequest("POST", origin+"/api/bootstrap", nil)
+	bootstrap.Header.Set("Origin", origin)
+	bootstrap.Header.Set("X-Launch-Key", launchURL.Fragment[len("launch="):])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, bootstrap)
+	if response.Code != 200 {
+		t.Fatal(response.Body.String())
+	}
+	cookie := response.Result().Cookies()[0]
+	get := func(path string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("GET", origin+path, nil)
+		request.Header.Set("Origin", origin)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	for _, tc := range []struct {
+		provider string
+		id       int64
+	}{{"demo-github", 142}, {"demo-gitlab", 7}} {
+		query := "?provider=" + tc.provider + "&id=" + strconv.FormatInt(tc.id, 10)
+		if response := get("/api/inbox" + query); response.Code != 200 {
+			t.Fatal(response.Body.String())
+		}
+		response := get("/api/detail" + query)
+		if response.Code != 200 {
+			t.Fatal(response.Body.String())
+		}
+		var detail provider.Detail
+		if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		path := "/api/checks" + query + "&revision=" + url.QueryEscape(detail.Revision)
+		response = get(path)
+		if response.Code != 200 {
+			t.Fatal(response.Body.String())
+		}
+		var checks provider.Checks
+		if err := json.Unmarshal(response.Body.Bytes(), &checks); err != nil {
+			t.Fatal(err)
+		}
+		if checks.HeadSHA != detail.HeadSHA || len(checks.Items) < 4 || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("checks=%+v", checks)
+		}
+		for _, bad := range []string{"/api/checks" + query, "/api/checks" + query + "&revision=arbitrary"} {
+			if response := get(bad); response.Code != 409 {
+				t.Fatalf("%s=%d", bad, response.Code)
+			}
+		}
+		for _, test := range []struct {
+			method, origin string
+			authenticated  bool
+			status         int
+		}{{"GET", origin, false, 401}, {"GET", "https://attacker.example", true, 403}, {"POST", origin, true, 405}} {
+			request := httptest.NewRequest(test.method, origin+path, nil)
+			request.Header.Set("Origin", test.origin)
+			if test.authenticated {
+				request.AddCookie(cookie)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status=%d expected=%d", response.Code, test.status)
+			}
+		}
+	}
+}

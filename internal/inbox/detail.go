@@ -51,11 +51,9 @@ func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error)
 // Diff accepts only an opaque revision reference issued by Detail on this
 // provider instance. New pushes cannot redirect it to another revision.
 func (s *Service) Diff(ctx context.Context, id int64, revision string) (provider.Diff, error) {
-	s.mu.Lock()
-	source, ok := s.revisions[revision]
-	s.mu.Unlock()
-	if !ok || source.ID != id {
-		return provider.Diff{}, provider.ErrRevisionUnavailable
+	source, err := s.inspected(id, revision)
+	if err != nil {
+		return provider.Diff{}, err
 	}
 	p, ok := s.provider.(provider.DiffProvider)
 	if !ok {
@@ -84,4 +82,14 @@ func (s *Service) discovered(id int64) (provider.PullRequest, error) {
 		}
 	}
 	return provider.PullRequest{}, ErrNotFound
+}
+
+func (s *Service) inspected(id int64, revision string) (provider.DiffSource, error) {
+	s.mu.Lock()
+	source, ok := s.revisions[revision]
+	s.mu.Unlock()
+	if !ok || source.ID != id {
+		return provider.DiffSource{}, provider.ErrRevisionUnavailable
+	}
+	return source, nil
 }

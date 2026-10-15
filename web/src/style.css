@@ -192,3 +192,18 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .discussion-entry .notice { margin: 12px 0 0; }
 .detail-toolbar { position: sticky; top: 0; z-index: 2; padding: 8px 0; background: #fff; }
 .diff-section, .discussion-section, .discussion-entry { scroll-margin-top: 80px; }
+
+.checks-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
+.checks-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.checks-heading h3 { margin: 0; font-size: 16px; }
+.checks-section a { color: var(--blue); font-size: 12px; }
+.checks-summary { color: #647080; font-size: 12px; }
+.checks-warning { margin-bottom: 12px; }
+.checks-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.check-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px 14px; align-items: center; padding: 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.check-entry:last-child { border-bottom: 0; }
+.check-name { min-width: 0; overflow-wrap: anywhere; }
+.check-kind { display: block; margin-top: 4px; color: #647080; font-size: 11px; }
+.check-result { padding: 4px 7px; border-radius: 5px; font-size: 11px; overflow-wrap: anywhere; }
+.check-description { grid-column: 1 / -1; margin: 0; color: #647080; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .check-entry { grid-template-columns: minmax(0, 1fr) auto; } .check-entry > a { grid-column: 1 / -1; } }

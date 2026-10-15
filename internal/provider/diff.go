@@ -20,6 +20,9 @@ var ErrRevisionUnavailable = errors.New("the inspected revision is unavailable; 
 // DiffSource contains only server-resolved upstream coordinates. It is never
 // populated from browser query parameters.
 type DiffSource struct {
+	PipelineID        int64
+	PipelineProjectID int64
+	PipelineKnown     bool // GitLab: no matching pipeline must not look like no CI.
 	PullRequest
 	HeadSHA      string
 	BaseSHA      string

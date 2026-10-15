@@ -23,7 +23,7 @@ func TestDetailUsesDiscoveredProjectAndChecksPipelineRevision(t *testing.T) {
 				body["sha"] = "inspected-sha"
 				body["diff_refs"] = map[string]string{"head_sha": "inspected-sha", "base_sha": "base-sha", "start_sha": "target-sha"}
 				body["state"] = "opened"
-				body["head_pipeline"] = map[string]string{"status": "success", "sha": pipelineSHA}
+				body["head_pipeline"] = map[string]any{"id": 42, "project_id": 88, "status": "success", "sha": pipelineSHA}
 				_ = json.NewEncoder(w).Encode(body)
 			}))
 			client.projects[10] = 77
@@ -35,7 +35,7 @@ func TestDetailUsesDiscoveredProjectAndChecksPipelineRevision(t *testing.T) {
 			if pipelineSHA != "inspected-sha" {
 				want = provider.CIUnknown
 			}
-			if detail.CI != want || detail.Description != "Description" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.Author != "alice" || detail.State != "opened" || detail.DiffSource.BaseSHA != "base-sha" || detail.DiffSource.StartSHA != "target-sha" {
+			if detail.CI != want || detail.Description != "Description" || detail.SourceBranch != "feature" || detail.TargetBranch != "main" || detail.HeadSHA != "inspected-sha" || detail.Author != "alice" || detail.State != "opened" || detail.DiffSource.BaseSHA != "base-sha" || detail.DiffSource.StartSHA != "target-sha" || detail.DiffSource.PipelineKnown != (pipelineSHA == "inspected-sha") || (pipelineSHA == "inspected-sha" && detail.DiffSource.PipelineProjectID != 88) {
 				t.Fatalf("detail=%+v", detail)
 			}
 		})
