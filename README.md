@@ -24,7 +24,9 @@ GitLab, and demo data. A file browser shows unified diffs pinned to the inspecte
 revision, with additions, deletions, renames, and a plain-text option. The
 read-only discussion timeline shows GitHub general comments, submitted reviews,
 and inline review comments, or GitLab notes, file discussions, and system
-activity. Full check results remain on the provider.
+activity. The checks panel shows individual GitHub check runs and commit statuses,
+or the selected GitLab pipeline, jobs and trigger jobs, with results and links to
+the provider's logs.
 
 Diffs are limited to 300 files and 5 MiB of patch text, with a 256 KiB / 10,000-line
 limit per file. Binary, missing, oversized, and incomplete patches are labeled
@@ -53,6 +55,15 @@ require a final empty page to confirm the end. GitHub pending reviews and
 thread resolution state remain on GitHub; GitLab includes note resolution state
 when supplied by the API.
 
+Checks are loaded for the inspected commit and refreshed independently of the
+queue. GitHub combines check runs and external status contexts, up to 200 results.
+GitLab captures the matching pipeline ID and project when details are opened,
+verifies its SHA before reading jobs, and includes trigger jobs via the compatible
+`bridges` endpoint. Child-pipeline jobs are available through provider links.
+Reload details to select a newer GitLab pipeline. Incomplete lists and failed
+refreshes are explicit; skipped, neutral, canceled, manual and allowed-to-fail
+results remain distinct. Check results do not imply that a change can be merged.
+
 ## Roadmap
 
 Work in delivery order. Unchecked items are planned and the scope may change.
@@ -62,7 +73,7 @@ Work in delivery order. Unchecked items are planned and the scope may change.
   - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
   - [x] Read-only discussion timeline with pagination and provider links
   - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
-  - Check summaries
+  - [x] Detailed check results and provider links
   - Local review drafts and "viewed" markers
 - [ ] **Milestone 3 – Overall review writes:**
   - Submit an overall review (approve, comment, request changes) after an explicit confirmation

@@ -130,7 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
-	case "/api/detail", "/api/diff", "/api/discussion":
+	case "/api/detail", "/api/diff", "/api/discussion", "/api/checks":
 		if !h.authorize(w, r, false) {
 			return
 		}
@@ -267,6 +267,8 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	var result any
 	if r.URL.Path == "/api/diff" {
 		result, err = service.Diff(r.Context(), id, r.URL.Query().Get("revision"))
+	} else if r.URL.Path == "/api/checks" {
+		result, err = service.Checks(r.Context(), id, r.URL.Query().Get("revision"))
 	} else if r.URL.Path == "/api/discussion" {
 		page := 1
 		if value := r.URL.Query().Get("page"); value != "" {

@@ -31,8 +31,10 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 			StartSHA string `json:"start_sha"`
 		} `json:"diff_refs"`
 		HeadPipeline *struct {
-			Status string `json:"status"`
-			SHA    string `json:"sha"`
+			ID        int64  `json:"id"`
+			ProjectID int64  `json:"project_id"`
+			Status    string `json:"status"`
+			SHA       string `json:"sha"`
 		} `json:"head_pipeline"`
 	}
 	path := fmt.Sprintf("/projects/%d/merge_requests/%d", projectID, pr.Number)
@@ -51,7 +53,13 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 			pr.CI = pipelineState(response.HeadPipeline.Status)
 		}
 	}
-	source := provider.DiffSource{ChangedFiles: -1}
+	source := provider.DiffSource{ChangedFiles: -1, PipelineKnown: response.HeadPipeline == nil}
+	if pipeline := response.HeadPipeline; pipeline != nil && pipeline.SHA == response.SHA && pipeline.ID > 0 {
+		source.PipelineID, source.PipelineProjectID, source.PipelineKnown = pipeline.ID, pipeline.ProjectID, true
+		if source.PipelineProjectID <= 0 {
+			source.PipelineProjectID = projectID
+		}
+	}
 	if response.DiffRefs.HeadSHA == response.SHA {
 		source.BaseSHA, source.StartSHA = response.DiffRefs.BaseSHA, response.DiffRefs.StartSHA
 	}

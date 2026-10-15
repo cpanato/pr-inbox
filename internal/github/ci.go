@@ -21,11 +21,13 @@ type graphQLResponse struct {
 }
 
 type statusRollup struct {
-	State string `json:"state"`
+	State    string         `json:"state"`
+	Contexts *checkContexts `json:"contexts"`
 }
 
 type ciRepository struct {
 	Object *struct {
+		OID               string        `json:"oid"`
 		StatusCheckRollup *statusRollup `json:"statusCheckRollup"`
 	} `json:"object"`
 	PullRequest *struct {
