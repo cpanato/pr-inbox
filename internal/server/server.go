@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -91,6 +92,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		primary := h.services[0].Info()
+		cookie, _ := r.Cookie(cookieName) // authorize already validated the session.
+		h.mu.Lock()
+		csrfToken := h.sessions[cookie.Value]
+		h.mu.Unlock()
 		providers := make([]map[string]string, 0, len(h.services))
 		for _, service := range h.services {
 			info := service.Info()
@@ -99,6 +104,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		h.respond(w, http.StatusOK, map[string]any{
+			"csrfToken":          csrfToken,
 			"viewer":             primary.Viewer.Login,
 			"readOnly":           h.readOnly,
 			"mutationsAvailable": false,
@@ -123,6 +129,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
+	case "/api/detail":
+		if !h.authorize(w, r, false) {
+			return
+		}
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		h.detail(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
@@ -220,7 +235,7 @@ func (h *Handler) sameOrigin(w http.ResponseWriter, r *http.Request, requireOrig
 	return true
 }
 
-func (h *Handler) inbox(w http.ResponseWriter, r *http.Request, force bool) {
+func (h *Handler) serviceFor(w http.ResponseWriter, r *http.Request) *inbox.Service {
 	service := h.services[0]
 	if id := r.URL.Query().Get("provider"); id != "" {
 		service = nil
@@ -232,8 +247,42 @@ func (h *Handler) inbox(w http.ResponseWriter, r *http.Request, force bool) {
 		}
 		if service == nil {
 			h.writeError(w, http.StatusNotFound, "unknown_provider", "No such provider is configured.")
-			return
+			return nil
 		}
+	}
+	return service
+}
+
+func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
+	service := h.serviceFor(w, r)
+	if service == nil {
+		return
+	}
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id <= 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid_id", "A valid change request ID is required.")
+		return
+	}
+	result, err := service.Detail(r.Context(), id)
+	if errors.Is(err, inbox.ErrNotFound) {
+		h.writeError(w, http.StatusNotFound, "unknown_change_request", err.Error())
+		return
+	}
+	if errors.Is(err, inbox.ErrDetailUnavailable) {
+		h.writeError(w, http.StatusNotImplemented, "detail_unavailable", err.Error())
+		return
+	}
+	if err != nil {
+		h.writeError(w, http.StatusBadGateway, "provider_error", err.Error())
+		return
+	}
+	h.respond(w, http.StatusOK, result)
+}
+
+func (h *Handler) inbox(w http.ResponseWriter, r *http.Request, force bool) {
+	service := h.serviceFor(w, r)
+	if service == nil {
+		return
 	}
 	result, err := service.Snapshot(r.Context(), force)
 	if err != nil {

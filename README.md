@@ -17,15 +17,19 @@ The screenshots use sample data (`--demo`). With more than one provider, each ge
 
 Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
 organization and repository filters, CI status labels, capped discovery, explicit
-direct-request-only coverage, and a read-only local UI.
+direct-request-only coverage, and a read-only local UI. Clicking a PR/MR title
+opens a detail panel with its description (plain text), author, branches, head
+commit, and CI summary for that commit. The panel is available for GitHub,
+GitLab, and demo data; discussion and full check results remain on the provider.
 
 ## Roadmap
 
-Planned work, in order. Nothing below is implemented yet and the scope may change.
+Work in delivery order. Unchecked items are planned and the scope may change.
 
 - [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
 - [ ] **Milestone 2 – Review workspace:**
-  - Pull request description and discussion
+  - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
+  - Discussion
   - Diffs pinned to a commit, with large, binary and truncated diff handling
   - Check summaries
   - Local review drafts and "viewed" markers

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -14,6 +14,14 @@ type PullRequest = {
   draft: boolean | null;
   ci: CIState;
   reasons: string[];
+};
+
+type Detail = PullRequest & {
+  description: string;
+  sourceBranch: string;
+  targetBranch: string;
+  headSHA: string;
+  state: string;
 };
 
 type Queue = {
@@ -40,6 +48,7 @@ type ProviderInfo = {
 };
 
 type Session = {
+  csrfToken: string;
   providers: ProviderInfo[];
   viewer: string;
   readOnly: boolean;
@@ -71,7 +80,7 @@ async function request<T>(
   return payload as T;
 }
 
-async function bootstrap(): Promise<string> {
+async function bootstrap(): Promise<void> {
   const parameters = new URLSearchParams(window.location.hash.slice(1));
   const launchKey = parameters.get("launch");
   if (launchKey) {
@@ -83,9 +92,7 @@ async function bootstrap(): Promise<string> {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.message ?? "Could not open the local session.");
-    return payload.csrfToken as string;
   }
-  return "";
 }
 
 function App() {
@@ -100,6 +107,7 @@ function App() {
   const [repo, setRepo] = useState("");
   const [order, setOrder] = useState<"oldest" | "recent">("oldest");
   const [loadingIds, setLoadingIds] = useState<string[]>([]);
+  const [selectedPR, setSelectedPR] = useState<PullRequest | null>(null);
   const [startupError, setStartupError] = useState("");
   const [booting, setBooting] = useState(true);
 
@@ -126,16 +134,16 @@ function App() {
     let active = true;
     void (async () => {
       try {
-        const token = await bootstrap();
+        await bootstrap();
         if (!active) return;
-        setCsrfToken(token);
         const identity = await request<Session>("/api/session");
         if (!active) return;
+        setCsrfToken(identity.csrfToken);
         setSession(identity);
         const first = identity.providers[0]?.id ?? "";
         setActiveProvider(first);
         setBooting(false);
-        await loadInbox(first, false, token);
+        await loadInbox(first);
       } catch (reason) {
         if (!active) return;
         setStartupError(reason instanceof Error ? reason.message : "Could not connect to PR Inbox.");
@@ -157,6 +165,7 @@ function App() {
   const nounPlural = isGitLab ? "merge requests" : "pull requests";
 
   const selectProvider = (id: string) => {
+    setSelectedPR(null);
     setActiveProvider(id);
     setOrg("");
     setRepo("");
@@ -320,15 +329,83 @@ function App() {
                 </div>
               ) : (
                 <ul className="pr-list">
-                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} />)}
+                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} onSelect={() => setSelectedPR(item)} />)}
                 </ul>
               )}
             </section>
           </>
         )}
       </main>
+      {selectedPR && provider && (
+        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} onClose={() => setSelectedPR(null)} />
+      )}
       <footer className="footer">Local to this device · No PR code is executed</footer>
     </div>
+  );
+}
+
+function DetailPanel({ item, provider, onClose }: { item: PullRequest; provider: ProviderInfo; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const isGitLab = provider.kind === "gitlab";
+
+  useEffect(() => {
+    const element = dialog.current;
+    const previousFocus = document.activeElement;
+    element?.showModal();
+    return () => {
+      element?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDetail(null);
+    setError("");
+    void request<Detail>(`/api/detail?provider=${encodeURIComponent(provider.id)}&id=${item.id}`, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setDetail(data); })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load details.");
+      });
+    return () => controller.abort();
+  }, [provider.id, item.id, attempt]);
+
+  const current = detail ?? item;
+  return (
+    <dialog className="detail-dialog" ref={dialog} aria-labelledby="detail-title" onCancel={onClose} onClose={onClose}>
+      <div className="detail-toolbar">
+        <span>{item.repo} {isGitLab ? "!" : "#"}{item.number}</span>
+        <button type="button" className="refresh-button" onClick={onClose} autoFocus>Close</button>
+      </div>
+      <h2 id="detail-title">{current.title}</h2>
+      <p className="detail-author">Opened by <strong>{current.author}</strong></p>
+      <a className="detail-provider-link" href={item.html_url} target="_blank" rel="noreferrer">Open on {provider.name} ↗</a>
+      {error ? (
+        <div className="notice error-notice" role="alert">
+          <p>{error}</p>
+          <button className="refresh-button" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
+        </div>
+      ) : !detail ? (
+        <p className="detail-loading" role="status">Loading details…</p>
+      ) : (
+        <>
+          <dl className="detail-metadata">
+            <div><dt>State</dt><dd>{detail.state}{detail.draft ? " · Draft" : ""}</dd></div>
+            <div><dt>Branches</dt><dd><code>{detail.sourceBranch}</code> → <code>{detail.targetBranch}</code></dd></div>
+            <div><dt>Head commit</dt><dd><code>{detail.headSHA}</code></dd></div>
+            <div><dt>CI at this commit</dt><dd><span className={`ci-label ci-${detail.ci}`} title={ciLabels[detail.ci].help.replace("latest commit", "displayed commit")}>{ciLabels[detail.ci].text}</span></dd></div>
+          </dl>
+          <section className="detail-description" aria-label="Description">
+            <h3>Description</h3>
+            <p className="detail-format-note">Shown as plain text. Discussion and full check results are available on {provider.name}.</p>
+            <div className="description-text">{detail.description || "No description provided."}</div>
+          </section>
+        </>
+      )}
+    </dialog>
   );
 }
 
@@ -349,7 +426,7 @@ const ciLabels: Record<CIState, { text: string; help: string }> = {
   failure: { text: "CI failing", help: "At least one check on the latest commit failed." },
   pending: { text: "CI running", help: "Checks on the latest commit are still running or pending." },
   none: { text: "No CI", help: "No checks or statuses were reported for the latest commit." },
-  unknown: { text: "CI unknown", help: "The CI status could not be loaded from GitHub." },
+  unknown: { text: "CI unknown", help: "The CI status could not be loaded from the provider." },
 };
 
 const reasonHelp: Record<string, string> = {
@@ -357,7 +434,7 @@ const reasonHelp: Record<string, string> = {
   "Authored by you": "You opened this pull request.",
 };
 
-function PRCard({ item, noun, hostName }: { item: PullRequest; noun: string; hostName: string }) {
+function PRCard({ item, noun, hostName, onSelect }: { item: PullRequest; noun: string; hostName: string; onSelect: () => void }) {
   const draft = item.draft === true ? "Draft" : item.draft === false ? "Ready for review" : "Draft status unavailable";
   return (
     <li className="pr-card">
@@ -366,7 +443,7 @@ function PRCard({ item, noun, hostName }: { item: PullRequest; noun: string; hos
           <span className="repo-icon" aria-hidden="true">⌘</span>
           <span>{item.repo}</span>
           <span className="separator">/</span>
-          <a href={item.html_url} target="_blank" rel="noreferrer">{item.title}</a>
+          <button className="pr-title" type="button" onClick={onSelect}>{item.title}</button>
           <span className="pr-number">#{item.number}</span>
         </div>
         <p className="pr-meta">Opened by <strong>{item.author}</strong> · {new Date(item.created_at).toLocaleDateString()}</p>

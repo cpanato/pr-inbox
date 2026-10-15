@@ -6,6 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/cpanato/pr-inbox/internal/demo"
 	"testing"
 
 	"github.com/cpanato/pr-inbox/internal/inbox"
@@ -143,6 +147,60 @@ func TestRefreshRequiresCSRFTokenAndIsAvailableInReadOnlyMode(t *testing.T) {
 	}
 }
 
+// A reloaded page has only the HttpOnly cookie, without the launch fragment or
+// the in-memory bootstrap token. It must recover CSRF from its own session.
+func TestRefreshAfterPageReload(t *testing.T) {
+	handler, launchURL := newTestHandler(t, true)
+	origin := launchURL.Scheme + "://" + launchURL.Host
+	bootstrap := httptest.NewRequest(http.MethodPost, origin+"/api/bootstrap", nil)
+	bootstrap.Header.Set("Origin", origin)
+	bootstrap.Header.Set("X-Launch-Key", launchURL.Fragment[len("launch="):])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, bootstrap)
+	if response.Code != http.StatusOK {
+		t.Fatalf("bootstrap: %d", response.Code)
+	}
+	cookie := response.Result().Cookies()[0]
+
+	session := httptest.NewRequest(http.MethodGet, origin+"/api/session", nil)
+	session.Header.Set("Sec-Fetch-Site", "same-origin")
+	session.AddCookie(cookie)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, session)
+	if response.Code != http.StatusOK {
+		t.Fatalf("session: %d", response.Code)
+	}
+	var body struct {
+		CSRFToken string `json:"csrfToken"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.CSRFToken == "" {
+		t.Fatal("session omitted CSRF token")
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("session must not be cached")
+	}
+
+	refresh := httptest.NewRequest(http.MethodPost, origin+"/api/refresh", nil)
+	refresh.Header.Set("Origin", origin)
+	refresh.Header.Set("X-CSRF-Token", body.CSRFToken)
+	refresh.AddCookie(cookie)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, refresh)
+	if response.Code != http.StatusOK {
+		t.Fatalf("refresh after reload: %d: %s", response.Code, response.Body.String())
+	}
+
+	session.Header.Set("Origin", "http://attacker.example")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, session)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin session: %d", response.Code)
+	}
+}
+
 func TestRejectsUnexpectedHost(t *testing.T) {
 	handler, _ := newTestHandler(t, false)
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -178,5 +236,66 @@ func TestInboxSelectsProvider(t *testing.T) {
 		if response.Code != want {
 			t.Errorf("GET %s = %d, want %d", path, response.Code, want)
 		}
+	}
+}
+
+func TestDetailRouteRequiresSessionAndDiscoveredID(t *testing.T) {
+	handler, launch, err := New([]*inbox.Service{inbox.New(demo.New(), nil), inbox.New(demo.NewGitLab(), nil)}, true, "127.0.0.1:41234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchURL, err := url.Parse(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := launchURL.Scheme + "://" + launchURL.Host
+	bootstrap := httptest.NewRequest(http.MethodPost, origin+"/api/bootstrap", nil)
+	bootstrap.Header.Set("Origin", origin)
+	bootstrap.Header.Set("X-Launch-Key", launchURL.Fragment[len("launch="):])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, bootstrap)
+	if response.Code != http.StatusOK {
+		t.Fatalf("bootstrap: %d", response.Code)
+	}
+	cookie := response.Result().Cookies()[0]
+	for _, tc := range []struct {
+		path, method, origin string
+		authenticated        bool
+		status               int
+	}{
+		{"/api/detail?id=142", "GET", origin, false, 401},
+		{"/api/detail?id=142", "GET", "https://attacker.example", true, 403},
+		{"/api/detail?id=142", "GET", origin, true, 404},
+		{"/api/inbox", "GET", origin, true, 200},
+		{"/api/detail?id=142", "GET", origin, true, 200},
+		{"/api/detail?id=150", "GET", origin, true, 200},
+		{"/api/detail?id=142", "POST", origin, true, 405},
+		{"/api/detail?id=142&provider=demo-gitlab", "GET", origin, true, 404},
+		{"/api/detail?id=142&provider=missing", "GET", origin, true, 404},
+		{"/api/detail?id=9999", "GET", origin, true, 404},
+		{"/api/detail?id=../user", "GET", origin, true, 400},
+		{"/api/detail?id=-1", "GET", origin, true, 400},
+	} {
+		t.Run(tc.method+tc.path+tc.origin+strconv.FormatBool(tc.authenticated), func(t *testing.T) {
+			request := httptest.NewRequest(tc.method, origin+tc.path, nil)
+			request.Header.Set("Origin", tc.origin)
+			if tc.authenticated {
+				request.AddCookie(cookie)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != tc.status {
+				t.Fatalf("status=%d want=%d body=%s", response.Code, tc.status, response.Body.String())
+			}
+			if response.Code == http.StatusOK && strings.HasPrefix(tc.path, "/api/detail") {
+				var detail provider.Detail
+				if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+					t.Fatal(err)
+				}
+				if detail.HeadSHA == "" || detail.Description == "" {
+					t.Fatalf("detail=%+v", detail)
+				}
+			}
+		})
 	}
 }
