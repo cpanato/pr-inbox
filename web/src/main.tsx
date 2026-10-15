@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { request } from "./api";
 import { DiffWorkspace } from "./DiffWorkspace";
+import { DiscussionPanel } from "./DiscussionPanel";
 
 type PullRequest = {
   id: number;
@@ -379,10 +380,11 @@ function DetailPanel({ item, provider, onClose }: { item: PullRequest; provider:
           </dl>
           <section className="detail-description" aria-label="Description">
             <h3>Description</h3>
-            <p className="detail-format-note">Shown as plain text. Discussion and full check results are available on {provider.name}.</p>
+            <p className="detail-format-note">Shown as plain text. Full check results are available on {provider.name}.</p>
             <div className="description-text">{detail.description || "No description provided."}</div>
           </section>
           <DiffWorkspace key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={() => setAttempt((value) => value + 1)} />
+          <DiscussionPanel key={`discussion:${detail.revision}`} providerId={provider.id} itemId={item.id} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} headSHA={detail.headSHA} />
         </>
       )}
     </dialog>

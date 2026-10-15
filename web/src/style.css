@@ -172,3 +172,23 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .diff-hunk { color: #0550ae; background: #ddf4ff; }
 .diff-context { color: #293448; }
 @media (max-width: 750px) { .diff-workspace { grid-template-columns: 1fr; } .diff-files { max-height: 180px; } }
+
+.discussion-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.discussion-section a { color: var(--blue); }
+.discussion-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.discussion-heading h3 { margin: 0; font-size: 16px; }
+.discussion-coverage { color: #647080; font-size: 12px; line-height: 1.5; }
+.discussion-warning { margin-bottom: 16px; }
+.discussion-list { list-style: none; padding: 0; margin: 16px 0; }
+.discussion-entry { padding: 16px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; scroll-margin-top: 16px; }
+.discussion-entry:target { border-color: var(--blue); }
+.discussion-entry-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #647080; }
+.discussion-entry-header strong { color: #293448; }
+.discussion-kind, .discussion-state { padding: 3px 6px; border-radius: 5px; background: #edf0ff; color: #4f64b4; }
+.discussion-context { margin-bottom: 10px; color: #647080; font-size: 12px; }
+.discussion-body { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 400px; overflow: auto; }
+.discussion-edited { margin: 10px 0 0; color: #647080; font-size: 11px; }
+.discussion-more { margin-bottom: 16px; }
+.discussion-entry .notice { margin: 12px 0 0; }
+.detail-toolbar { position: sticky; top: 0; z-index: 2; padding: 8px 0; background: #fff; }
+.diff-section, .discussion-section, .discussion-entry { scroll-margin-top: 80px; }

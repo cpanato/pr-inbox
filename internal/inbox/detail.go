@@ -16,28 +16,15 @@ var (
 // Detail resolves an ID through server-owned discovery data. The browser never
 // chooses a repository, upstream path or fetch URL.
 func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error) {
-	s.mu.Lock()
-	var found *provider.PullRequest
-	if s.cached != nil {
-		for _, queue := range []Queue{s.cached.ToReview, s.cached.MyPRs} {
-			for _, item := range queue.Items {
-				if item.ID == id {
-					pr := item.PullRequest
-					found = &pr
-					break
-				}
-			}
-		}
-	}
-	s.mu.Unlock()
-	if found == nil {
-		return provider.Detail{}, ErrNotFound
+	found, err := s.discovered(id)
+	if err != nil {
+		return provider.Detail{}, err
 	}
 	p, ok := s.provider.(provider.DetailProvider)
 	if !ok {
 		return provider.Detail{}, ErrDetailUnavailable
 	}
-	detail, err := p.Detail(ctx, *found)
+	detail, err := p.Detail(ctx, found)
 	if err != nil {
 		return provider.Detail{}, err
 	}
@@ -45,7 +32,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error)
 	// retain descriptions or patches in this map.
 	detail.Revision = rand.Text()
 	source := detail.DiffSource
-	source.PullRequest = *found
+	source.PullRequest = found
 	source.HeadSHA = detail.HeadSHA
 	s.mu.Lock()
 	if s.revisions == nil {
@@ -82,4 +69,19 @@ func (s *Service) Diff(ctx context.Context, id int64, revision string) (provider
 		return provider.Diff{}, provider.ErrRevisionUnavailable
 	}
 	return provider.BoundDiff(diff), nil
+}
+
+func (s *Service) discovered(id int64) (provider.PullRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cached != nil {
+		for _, queue := range []Queue{s.cached.ToReview, s.cached.MyPRs} {
+			for _, item := range queue.Items {
+				if item.ID == id {
+					return item.PullRequest, nil
+				}
+			}
+		}
+	}
+	return provider.PullRequest{}, ErrNotFound
 }

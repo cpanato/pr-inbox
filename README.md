@@ -21,8 +21,10 @@ direct-request-only coverage, and a read-only local UI. Clicking a PR/MR title
 opens a detail panel with its description (plain text), author, branches, head
 commit, and CI summary for that commit. The panel is available for GitHub,
 GitLab, and demo data. A file browser shows unified diffs pinned to the inspected
-revision, with additions, deletions, renames, and a plain-text option. Discussion
-and full check results remain on the provider.
+revision, with additions, deletions, renames, and a plain-text option. The
+read-only discussion timeline shows GitHub general comments, submitted reviews,
+and inline review comments, or GitLab notes, file discussions, and system
+activity. Full check results remain on the provider.
 
 Diffs are limited to 300 files and 5 MiB of patch text, with a 256 KiB / 10,000-line
 limit per file. Binary, missing, oversized, and incomplete patches are labeled
@@ -33,6 +35,24 @@ GitLab searches the most recent 100 diff versions; an unavailable version asks
 you to reload details rather than substituting another diff. Inspected revision
 references are kept only in memory (the most recent 64 per provider).
 
+Discussion is loaded independently of the pinned diff and reflects the current
+conversation on the provider. Entries show author, date, review state and file /
+commit context where available, with links for reading threads on the provider.
+Bodies are plain text: HTML and remote images are never rendered. **Load more
+discussion** fetches another page; loaded entries are sorted chronologically and
+may move as more pages arrive. **Refresh discussion** starts again at page one.
+These pages are live reads, not an atomic history snapshot; concurrent edits or
+deletions may shift pagination.
+
+Discussion limits are 10 pages, 100 messages and 512 KiB of body text per page,
+and 16 KiB per message. GitHub fetches 20 items from each of its three streams
+per page; GitLab fetches 20 discussions (which may contain several notes).
+Omissions and shortened bodies are labeled. A failed page retains the already
+loaded entries and can be retried without advancing pagination. Pagination may
+require a final empty page to confirm the end. GitHub pending reviews and
+thread resolution state remain on GitHub; GitLab includes note resolution state
+when supplied by the API.
+
 ## Roadmap
 
 Work in delivery order. Unchecked items are planned and the scope may change.
@@ -40,7 +60,7 @@ Work in delivery order. Unchecked items are planned and the scope may change.
 - [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
 - [ ] **Milestone 2 – Review workspace:**
   - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
-  - Discussion
+  - [x] Read-only discussion timeline with pagination and provider links
   - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
   - Check summaries
   - Local review drafts and "viewed" markers
