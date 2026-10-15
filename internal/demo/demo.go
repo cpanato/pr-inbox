@@ -101,3 +101,13 @@ func (c *Client) CIStatuses(_ context.Context, prs []provider.PullRequest) (map[
 	}
 	return statuses, nil
 }
+
+func (c *Client) Detail(_ context.Context, pr provider.PullRequest) (provider.Detail, error) {
+	pr.CI = c.ci[pr.ID]
+	return provider.Detail{
+		PullRequest:  pr,
+		Description:  "## Summary\n\n" + pr.Title + ".\n\nThis is sample data for the read-only review workspace.\n\n## Validation\n\n- Unit tests\n- Manual verification\n\nOpen the provider link to read the discussion and full check results.",
+		SourceBranch: "feature/" + strconv.Itoa(pr.Number), TargetBranch: "main",
+		HeadSHA: "a1b2c3d4e5f6789012345678901234567890abcdef", State: "open",
+	}, nil
+}

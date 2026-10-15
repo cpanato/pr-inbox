@@ -20,14 +20,19 @@ type graphQLResponse struct {
 	} `json:"errors"`
 }
 
+type statusRollup struct {
+	State string `json:"state"`
+}
+
 type ciRepository struct {
+	Object *struct {
+		StatusCheckRollup *statusRollup `json:"statusCheckRollup"`
+	} `json:"object"`
 	PullRequest *struct {
 		Commits struct {
 			Nodes []struct {
 				Commit struct {
-					StatusCheckRollup *struct {
-						State string `json:"state"`
-					} `json:"statusCheckRollup"`
+					StatusCheckRollup *statusRollup `json:"statusCheckRollup"`
 				} `json:"commit"`
 			} `json:"nodes"`
 		} `json:"commits"`
@@ -97,7 +102,14 @@ func ciState(repository *ciRepository) string {
 	if len(nodes) == 0 || nodes[0].Commit.StatusCheckRollup == nil {
 		return provider.CINone
 	}
-	switch nodes[0].Commit.StatusCheckRollup.State {
+	return rollupState(nodes[0].Commit.StatusCheckRollup)
+}
+
+func rollupState(rollup *statusRollup) string {
+	if rollup == nil {
+		return provider.CINone
+	}
+	switch rollup.State {
 	case "SUCCESS":
 		return provider.CISuccess
 	case "FAILURE", "ERROR":
