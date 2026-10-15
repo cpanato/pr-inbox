@@ -130,7 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
-	case "/api/detail", "/api/diff":
+	case "/api/detail", "/api/diff", "/api/discussion":
 		if !h.authorize(w, r, false) {
 			return
 		}
@@ -267,8 +267,22 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	var result any
 	if r.URL.Path == "/api/diff" {
 		result, err = service.Diff(r.Context(), id, r.URL.Query().Get("revision"))
+	} else if r.URL.Path == "/api/discussion" {
+		page := 1
+		if value := r.URL.Query().Get("page"); value != "" {
+			page, err = strconv.Atoi(value)
+			if err != nil {
+				h.writeError(w, http.StatusBadRequest, "invalid_page", provider.ErrInvalidDiscussionPage.Error())
+				return
+			}
+		}
+		result, err = service.Discussion(r.Context(), id, page)
 	} else {
 		result, err = service.Detail(r.Context(), id)
+	}
+	if errors.Is(err, provider.ErrInvalidDiscussionPage) {
+		h.writeError(w, http.StatusBadRequest, "invalid_page", err.Error())
+		return
 	}
 	if errors.Is(err, provider.ErrRevisionUnavailable) {
 		h.writeError(w, http.StatusConflict, "revision_unavailable", err.Error())

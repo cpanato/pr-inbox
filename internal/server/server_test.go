@@ -390,3 +390,94 @@ func TestPinnedDiffRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscussionRouteDiscoveryPaginationAndAuthentication(t *testing.T) {
+	handler, launch, err := New([]*inbox.Service{inbox.New(demo.New(), nil), inbox.New(demo.NewGitLab(), nil)}, true, "127.0.0.1:41234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchURL, err := url.Parse(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := launchURL.Scheme + "://" + launchURL.Host
+	bootstrap := httptest.NewRequest("POST", origin+"/api/bootstrap", nil)
+	bootstrap.Header.Set("Origin", origin)
+	bootstrap.Header.Set("X-Launch-Key", launchURL.Fragment[len("launch="):])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, bootstrap)
+	if response.Code != 200 {
+		t.Fatal(response.Body.String())
+	}
+	cookie := response.Result().Cookies()[0]
+	get := func(path string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("GET", origin+path, nil)
+		request.Header.Set("Origin", origin)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	if response := get("/api/discussion?id=142"); response.Code != 404 {
+		t.Fatalf("undiscovered=%d", response.Code)
+	}
+	for _, tc := range []struct {
+		provider string
+		id       int64
+	}{{"demo-github", 142}, {"demo-gitlab", 7}} {
+		t.Run(tc.provider, func(t *testing.T) {
+			query := "?provider=" + tc.provider + "&id=" + strconv.FormatInt(tc.id, 10)
+			if response := get("/api/inbox" + query); response.Code != 200 {
+				t.Fatal(response.Body.String())
+			}
+			for _, page := range []int{1, 2} {
+				path := "/api/discussion" + query + "&page=" + strconv.Itoa(page)
+				response := get(path)
+				if response.Code != 200 {
+					t.Fatalf("page=%d status=%d %s", page, response.Code, response.Body.String())
+				}
+				var discussion provider.Discussion
+				if err := json.Unmarshal(response.Body.Bytes(), &discussion); err != nil {
+					t.Fatal(err)
+				}
+				if discussion.Page != page || discussion.HasMore != (page == 1) || len(discussion.Entries) == 0 || discussion.FetchedAt.IsZero() || response.Header().Get("Cache-Control") != "no-store" {
+					t.Fatalf("discussion=%+v", discussion)
+				}
+			}
+			for _, page := range []string{"0", "11", "-1", "x", "999999999999999999999999"} {
+				if response := get("/api/discussion" + query + "&page=" + page); response.Code != 400 {
+					t.Fatalf("page %s=%d", page, response.Code)
+				}
+			}
+		})
+	}
+	for path, want := range map[string]int{
+		"/api/discussion?id=142":                      200,
+		"/api/discussion?id=7&provider=demo-github":   404,
+		"/api/discussion?id=142&provider=demo-gitlab": 404,
+		"/api/discussion?id=142&provider=missing":     404,
+		"/api/discussion?id=../user":                  400,
+	} {
+		if response := get(path); response.Code != want {
+			t.Fatalf("%s=%d want=%d", path, response.Code, want)
+		}
+	}
+	for _, tc := range []struct {
+		method, origin string
+		cookie         bool
+		status         int
+	}{
+		{"GET", origin, false, 401}, {"GET", "https://attacker.example", true, 403}, {"POST", origin, true, 405},
+	} {
+		request := httptest.NewRequest(tc.method, origin+"/api/discussion?id=142", nil)
+		request.Header.Set("Origin", tc.origin)
+		if tc.cookie {
+			request.AddCookie(cookie)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != tc.status {
+			t.Fatalf("auth/method status=%d want=%d", response.Code, tc.status)
+		}
+	}
+}
