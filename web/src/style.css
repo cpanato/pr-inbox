@@ -207,3 +207,6 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .check-result { padding: 4px 7px; border-radius: 5px; font-size: 11px; overflow-wrap: anywhere; }
 .check-description { grid-column: 1 / -1; margin: 0; color: #647080; font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .check-entry { grid-template-columns: minmax(0, 1fr) auto; } .check-entry > a { grid-column: 1 / -1; } }
+
+.viewed-toggle { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; font-size: 0.85rem; }
+.viewed-toggle:has(input:disabled) { opacity: 0.65; }

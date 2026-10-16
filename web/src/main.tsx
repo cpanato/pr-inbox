@@ -318,14 +318,14 @@ function App() {
         )}
       </main>
       {selectedPR && provider && (
-        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} onClose={() => setSelectedPR(null)} />
+        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} csrfToken={csrfToken} readOnly={session?.readOnly ?? true} onClose={() => setSelectedPR(null)} />
       )}
       <footer className="footer">Local to this device · No PR code is executed</footer>
     </div>
   );
 }
 
-function DetailPanel({ item, provider, onClose }: { item: PullRequest; provider: ProviderInfo; onClose: () => void }) {
+function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: PullRequest; provider: ProviderInfo; csrfToken: string; readOnly: boolean; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
@@ -384,7 +384,7 @@ function DetailPanel({ item, provider, onClose }: { item: PullRequest; provider:
             <div className="description-text">{detail.description || "No description provided."}</div>
           </section>
           <ChecksPanel key={`checks:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} />
-          <DiffWorkspace key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={() => setAttempt((value) => value + 1)} />
+          <DiffWorkspace csrfToken={csrfToken} readOnly={readOnly} key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={() => setAttempt((value) => value + 1)} />
           <DiscussionPanel key={`discussion:${detail.revision}`} providerId={provider.id} itemId={item.id} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} headSHA={detail.headSHA} />
         </>
       )}

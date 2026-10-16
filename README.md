@@ -17,7 +17,7 @@ The screenshots use sample data (`--demo`). With more than one provider, each ge
 
 Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
 organization and repository filters, CI status labels, capped discovery, explicit
-direct-request-only coverage, and a read-only local UI. Clicking a PR/MR title
+direct-request-only coverage, and a local UI that reads from providers. Clicking a PR/MR title
 opens a detail panel with its description (plain text), author, branches, head
 commit, and CI summary for that commit. The panel is available for GitHub,
 GitLab, and demo data. A file browser shows unified diffs pinned to the inspected
@@ -26,7 +26,8 @@ read-only discussion timeline shows GitHub general comments, submitted reviews,
 and inline review comments, or GitLab notes, file discussions, and system
 activity. The checks panel shows individual GitHub check runs and commit statuses,
 or the selected GitLab pipeline, jobs and trigger jobs, with results and links to
-the provider's logs.
+the provider's logs. Files with complete patches can be explicitly marked **Viewed**;
+progress is saved on this device and restored when details are reopened.
 
 Diffs are limited to 300 files and 5 MiB of patch text, with a 256 KiB / 10,000-line
 limit per file. Binary, missing, oversized, and incomplete patches are labeled
@@ -64,6 +65,19 @@ Reload details to select a newer GitLab pipeline. Incomplete lists and failed
 refreshes are explicit; skipped, neutral, canceled, manual and allowed-to-fail
 results remain distinct. Check results do not imply that a change can be merged.
 
+Viewed markers are separated by provider, host, account and PR/MR, and pinned to
+both the head and base of the inspected diff. Changed revisions start with no
+viewed files and show a notice when another revision has saved progress. Binary,
+omitted and unlisted patches remain pending. Markers contain file paths only;
+credentials, descriptions and patches are not saved. Storage defaults to
+`pr-inbox/state` under the OS user configuration directory (on macOS,
+`~/Library/Application Support`; on Linux, `$XDG_CONFIG_HOME` or `~/.config`;
+on Windows, `%AppData%`). Use `--state-dir PATH` to choose another location.
+Records are written atomically; updates to separate files are independent, and
+concurrent updates to the same marker use the last successful write. Storage
+errors are shown without claiming that progress was saved. `--read-only` lets
+you read existing progress but disables changes. Nothing is sent to the provider.
+
 ## Roadmap
 
 Work in delivery order. Unchecked items are planned and the scope may change.
@@ -74,7 +88,8 @@ Work in delivery order. Unchecked items are planned and the scope may change.
   - [x] Read-only discussion timeline with pagination and provider links
   - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
   - [x] Detailed check results and provider links
-  - Local review drafts and "viewed" markers
+  - [x] Local file "viewed" markers pinned to the inspected revision
+  - [ ] Local review drafts
 - [ ] **Milestone 3 – Overall review writes:**
   - Submit an overall review (approve, comment, request changes) after an explicit confirmation
   - Safety checks that the head commit is unchanged and no pending review exists
@@ -119,7 +134,8 @@ Useful options:
 | `./dist/pr-inbox --gitlab gitlab.example.com` | Also lists merge requests from a self-hosted GitLab. Repeat `--gitlab` for each instance. gitlab.com is added automatically. See [GitLab](#gitlab). |
 | `./dist/pr-inbox --no-github` | Skips GitHub, for people who only use GitLab. |
 | `./dist/pr-inbox --no-gitlab` | Skips the automatic gitlab.com tab. |
-| `./dist/pr-inbox --read-only` | Opt-in guard against write operations. It has no effect today: the current version is always read-only (it only reads from GitHub), so you don't need to pass it. It exists so that, once actions such as review submission are added, you can disable them explicitly. Defaults to off. |
+| `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers. Existing progress can still be read. The current version only reads from providers. Defaults to off. |
+| `./dist/pr-inbox --state-dir PATH` | Chooses the directory for local review progress. |
 | `./dist/pr-inbox --demo` | Runs with built-in sample data instead of GitHub. No `gh` or authentication is needed and no network calls are made, so it is a safe way to try the interface (and how the README screenshot is produced). Can be combined with `--org` and `--no-open`, but not with `doctor`. |
 | `./dist/pr-inbox doctor` | Checks that `gh` is installed and authenticated and that the GitHub API (and every `--gitlab` host) is reachable, prints the accounts, then exits without starting the server. `--doctor` works too. |
 
