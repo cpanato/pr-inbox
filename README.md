@@ -141,7 +141,9 @@ the GitLab tab continues to provide local drafts only.
 
 ## Roadmap
 
-Work in delivery order. Unchecked items are planned and the scope may change.
+Delivery priority: finish Milestone 3, then implement Milestone 5. Milestone 4 is
+recorded as backlog only; implementation is not planned. Unchecked items may
+change in scope. Milestone numbers identify the themes, not their delivery order.
 
 - [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
 - [x] **Milestone 2 – Review workspace:**
@@ -160,10 +162,18 @@ Work in delivery order. Unchecked items are planned and the scope may change.
   - [x] Provider-neutral internal model (pull request / merge request)
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
   - [x] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
-- [ ] **Later:**
-  - Team review-request coverage
-  - Inline comments
-  - Saved preferences
+- [ ] **Milestone 5 – Personal triage and follow-up (next after Milestone 3):**
+  - Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
+  - Detect changed heads since the last confirmed review, with explicit freshness and coverage
+  - Snooze items until a chosen date, then return them to the queue
+  - Persist filters, ordering and preferences per account and provider
+  - Expand team review-request coverage, with explicit completeness limits
+- [ ] **Milestone 4 – Inline review (backlog only; no implementation planned):**
+  - Comments on diff lines, including renamed files
+  - Local inline drafts tied to file, line and inspected commit
+  - Confirmed submission of inline comments with an overall review
+  - Thread replies and resolution where supported by the provider
+  - Outdated-comment labels and position validation after head changes
 
 ## Requirements
 
