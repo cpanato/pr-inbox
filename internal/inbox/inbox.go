@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cpanato/pr-inbox/internal/provider"
+	"github.com/cpanato/pr-inbox/internal/state"
 )
 
 const (
@@ -24,6 +25,8 @@ type Service struct {
 	cachedAt      time.Time
 	revisions     map[string]provider.DiffSource
 	revisionOrder []string
+	viewable      map[string]map[string]bool
+	reviewStore   *state.Store
 }
 
 type PullRequest struct {

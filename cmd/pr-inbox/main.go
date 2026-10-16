@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/cpanato/pr-inbox/internal/inbox"
 	"github.com/cpanato/pr-inbox/internal/provider"
 	"github.com/cpanato/pr-inbox/internal/server"
+	"github.com/cpanato/pr-inbox/internal/state"
 )
 
 type stringList []string
@@ -50,8 +52,9 @@ func run(args []string) error {
 		args = args[1:]
 	}
 	flags := flag.NewFlagSet("pr-inbox", flag.ContinueOnError)
+	stateDir := flags.String("state-dir", "", "directory for local review progress (defaults to the user config directory)")
 	noOpen := flags.Bool("no-open", false, "print the local URL without opening a browser")
-	readOnly := flags.Bool("read-only", false, "disable write operations (the initial inbox is read-only)")
+	readOnly := flags.Bool("read-only", false, "disable write operations, including local review progress")
 	doctor := flags.Bool("doctor", false, "check GitHub CLI authentication and GitHub connectivity")
 	var orgs stringList
 	flags.Var(&orgs, "org", "limit GitHub discovery to an organization; may be repeated")
@@ -93,6 +96,17 @@ func run(args []string) error {
 	}
 	if *doctor {
 		return nil
+	}
+	if *stateDir == "" {
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return fmt.Errorf("locate local review storage: %w", err)
+		}
+		*stateDir = filepath.Join(configDir, "pr-inbox", "state")
+	}
+	store := state.New(*stateDir)
+	for _, service := range services {
+		service.SetReviewStore(store)
 	}
 	primary := services[0].Info()
 

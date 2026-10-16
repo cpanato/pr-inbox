@@ -19,7 +19,11 @@ type Diff = {
   htmlURL: string;
 };
 
+type Progress = { paths: string[]; previousRevision: boolean };
+
 type Props = {
+ csrfToken: string;
+ readOnly: boolean;
   providerId: string;
   itemId: number;
   revision: string;
@@ -29,7 +33,7 @@ type Props = {
   onReload: () => void;
 };
 
-export function DiffWorkspace({ providerId, itemId, revision, headSHA, providerName, providerURL, onReload }: Props) {
+export function DiffWorkspace({ csrfToken, readOnly, providerId, itemId, revision, headSHA, providerName, providerURL, onReload }: Props) {
   const [diff, setDiff] = useState<Diff | null>(null);
   const [error, setError] = useState<APIError | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -53,6 +57,35 @@ export function DiffWorkspace({ providerId, itemId, revision, headSHA, providerN
     return () => controller.abort();
   }, [providerId, itemId, revision, headSHA, attempt]);
 
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [progressError, setProgressError] = useState("");
+  const [progressAttempt, setProgressAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const markerURL = `/api/viewed?provider=${encodeURIComponent(providerId)}&id=${itemId}&revision=${encodeURIComponent(revision)}`;
+  useEffect(() => {
+    const controller = new AbortController();
+    setProgress(null);
+    setProgressError("");
+    void request<Progress>(markerURL, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setProgress(data); })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setProgressError(reason instanceof Error ? reason.message : "Could not load review progress."); });
+    return () => controller.abort();
+  }, [markerURL, progressAttempt]);
+
+  async function toggleViewed(path: string) {
+    if (!progress || saving) return;
+    const viewed = !progress.paths.includes(path);
+    setSaving(true);
+    setProgressError("");
+    try {
+      await request(markerURL, { method: "POST", body: JSON.stringify({ path, viewed }) }, csrfToken);
+      setProgress((current) => current ? { ...current, paths: viewed ? [...current.paths, path] : current.paths.filter((entry) => entry !== path) } : current);
+    } catch (reason) {
+      setProgressError(reason instanceof Error ? reason.message : "Could not save review progress.");
+    } finally { setSaving(false); }
+  }
+  const isViewed = (file: DiffFile) => !file.omission && !!file.patch && !!progress?.paths.includes(file.path);
+  const viewedCount = diff?.files.filter(isViewed).length ?? 0;
   const selected = diff?.files[selectedIndex];
   return (
     <section className="diff-section" aria-labelledby="diff-heading">
@@ -61,6 +94,9 @@ export function DiffWorkspace({ providerId, itemId, revision, headSHA, providerN
         <button className="refresh-button" type="button" onClick={onReload}>Reload details</button>
       </div>
       <p className="detail-format-note">Pinned to <code>{headSHA.slice(0, 12)}</code>. Reload details to inspect a newer revision.</p>
+      {progressError && <div className="notice error-notice" role="alert"><p>{progressError}</p><button type="button" className="refresh-button" onClick={() => setProgressAttempt((value) => value + 1)} disabled={saving}>Reload progress</button></div>}
+      {progress?.previousRevision && <p className="notice" role="status">Saved progress exists for another revision. Files in this revision must be viewed separately.</p>}
+      {diff && progress && <p className="detail-format-note" role="status">{viewedCount} of {diff.totalFiles >= 0 ? diff.totalFiles : diff.files.length} files viewed{diff.totalFiles < 0 ? " (total unknown)" : ""}. Saved locally for this revision.{diff.incomplete ? " Unavailable or unlisted patches remain pending." : ""}{readOnly ? " Read-only mode: progress cannot be changed." : ""}</p>}
       {error ? (
         <div className="notice error-notice" role="alert">
           <p>{error.message}</p>
@@ -88,7 +124,7 @@ export function DiffWorkspace({ providerId, itemId, revision, headSHA, providerN
                 {diff.files.map((file, index) => (
                   <button key={`${index}:${file.path}`} className={index === selectedIndex ? "diff-file active" : "diff-file"} type="button" aria-current={index === selectedIndex ? "true" : undefined} onClick={() => setSelectedIndex(index)}>
                     <span>{file.path}</span>
-                    <small>{file.status}{file.omission ? " · patch unavailable" : ""}</small>
+                    <small>{file.status}{file.omission ? " · patch unavailable" : !progress ? " · progress unavailable" : isViewed(file) ? " · viewed" : " · pending"}</small>
                   </button>
                 ))}
               </nav>
@@ -97,6 +133,7 @@ export function DiffWorkspace({ providerId, itemId, revision, headSHA, providerN
                   <div className="diff-patch-heading">
                     <h4>{selected.oldPath ? `${selected.oldPath} → ` : ""}{selected.path}</h4>
                     <span className="diff-status">{selected.status}</span>
+                    <label className="viewed-toggle"><input type="checkbox" checked={!!isViewed(selected)} disabled={readOnly || saving || !progress || !!selected.omission || !selected.patch} onChange={() => void toggleViewed(selected.path)} /> Viewed</label>
                   </div>
                   {selected.omission ? (
                     <div className="notice"><p>{selected.omission}</p><a href={diff.htmlURL} target="_blank" rel="noreferrer">View on {providerName} ↗</a></div>

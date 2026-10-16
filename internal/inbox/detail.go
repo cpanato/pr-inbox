@@ -40,6 +40,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error)
 	}
 	if len(s.revisionOrder) == 64 {
 		delete(s.revisions, s.revisionOrder[0])
+		delete(s.viewable, s.revisionOrder[0])
 		s.revisionOrder = s.revisionOrder[1:]
 	}
 	s.revisions[detail.Revision] = source
@@ -66,7 +67,22 @@ func (s *Service) Diff(ctx context.Context, id int64, revision string) (provider
 	if diff.HeadSHA != source.HeadSHA {
 		return provider.Diff{}, provider.ErrRevisionUnavailable
 	}
-	return provider.BoundDiff(diff), nil
+	diff = provider.BoundDiff(diff)
+	s.mu.Lock()
+	if _, exists := s.revisions[revision]; exists {
+		if s.viewable == nil {
+			s.viewable = make(map[string]map[string]bool)
+		}
+		paths := make(map[string]bool)
+		for _, file := range diff.Files {
+			if file.Omission == "" && file.Patch != "" {
+				paths[file.Path] = true
+			}
+		}
+		s.viewable[revision] = paths
+	}
+	s.mu.Unlock()
+	return diff, nil
 }
 
 func (s *Service) discovered(id int64) (provider.PullRequest, error) {
