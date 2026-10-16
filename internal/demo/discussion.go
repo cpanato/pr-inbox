@@ -41,10 +41,14 @@ func (c *Client) Discussion(_ context.Context, pr provider.PullRequest, page int
 		entries[i].HTMLURL = pr.HTMLURL + "#note_" + strconv.Itoa(i+page*10)
 		entries[i].UpdatedAt = entries[i].CreatedAt
 	}
-	if page == 1 && c.kind == "github" {
+	if page == 1 {
 		c.reviewMu.Lock()
 		for _, review := range c.submitted[pr.ID] {
-			entries = append(entries, provider.DiscussionEntry{ID: "review:" + strconv.FormatInt(review.result.ID, 10), Kind: "review", Author: Login, State: review.result.State, Body: review.body, CreatedAt: review.created, UpdatedAt: review.created, CommitSHA: review.result.HeadSHA, HTMLURL: review.result.HTMLURL})
+			kind := "review"
+			if c.kind == "gitlab" {
+				kind = "note"
+			}
+			entries = append(entries, provider.DiscussionEntry{ID: "review:" + strconv.FormatInt(review.result.ID, 10), Kind: kind, Author: Login, State: review.result.State, Body: review.body, CreatedAt: review.created, UpdatedAt: review.created, CommitSHA: review.result.HeadSHA, HTMLURL: review.result.HTMLURL})
 		}
 		c.reviewMu.Unlock()
 	}

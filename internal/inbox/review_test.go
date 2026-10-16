@@ -2,7 +2,10 @@ package inbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -258,5 +261,58 @@ func TestConfirmedReviewCanRefreshHeadWithoutSendingOrClearingAgain(t *testing.T
 	op, err = s.ReconcileReview(ctx, 142, d.Revision)
 	if err != nil || op.HeadStatus != "changed" || !op.DraftCleared || p.posts != 1 {
 		t.Fatalf("refreshed=%+v posts=%d err=%v", op, p.posts, err)
+	}
+}
+
+func TestGitLabConfirmationUsesExactRemoteTextAndOperationReference(t *testing.T) {
+	for _, action := range []string{"comment", "approve", "request_changes"} {
+		t.Run(action, func(t *testing.T) {
+			ctx := context.Background()
+			p := demo.NewGitLab()
+			s := New(p, nil)
+			s.SetReviewStore(state.New(t.TempDir()))
+			if !s.ReviewsAvailable() {
+				t.Fatal("GitLab capability missing")
+			}
+			if _, err := s.Snapshot(ctx, false); err != nil {
+				t.Fatal(err)
+			}
+			d, err := s.Detail(ctx, 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			draft, err := s.SaveDraft(ctx, 7, d.Revision, "Review body", action, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preview, err := s.PrepareReview(ctx, 7, d.Revision, draft.Version, "session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(preview.Body, "Review body") || !strings.Contains(preview.Body, d.HeadSHA) || len(preview.Notices) == 0 {
+				t.Fatalf("preview=%+v", preview)
+			}
+			op, err := s.SubmitReview(ctx, 7, d.Revision, preview.Token, "session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := sha256.Sum256([]byte(preview.Body))
+			if op.Status != "confirmed" || !op.DraftCleared || op.BodyHash != hex.EncodeToString(hash[:]) || !strings.HasSuffix(preview.Body, "<!-- pr-inbox:"+op.ID+" -->") {
+				t.Fatalf("submitted content differed from confirmation: %+v", op)
+			}
+			discussion, err := s.Discussion(ctx, 7, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, entry := range discussion.Entries {
+				if entry.Body == preview.Body {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("submitted text absent from refreshed GitLab discussion")
+			}
+		})
 	}
 }

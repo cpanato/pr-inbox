@@ -1,5 +1,5 @@
 // Package gitlab implements provider.Provider for GitLab.com and self-hosted
-// GitLab instances using the read-only parts of the REST API.
+// GitLab instances using the REST API.
 package gitlab
 
 import (

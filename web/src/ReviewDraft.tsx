@@ -4,10 +4,10 @@ import { ReviewSubmit } from "./ReviewSubmit";
 
 type Draft = { headSHA: string; body: string; action: string; version: string; updatedAt: string; deleted?: boolean };
 type Drafts = { current: Draft; previous: { headSHA: string; updatedAt: string }[]; truncated: boolean };
-type Props = { providerId: string; itemId: number; revision: string; headSHA: string; csrfToken: string; readOnly: boolean; reviewsAvailable: boolean; selfAuthored: boolean; demo: boolean; providerURL: string; onSubmitted: () => void; onDirtyChange: (dirty: boolean) => void };
+type Props = { providerId: string; itemId: number; revision: string; headSHA: string; csrfToken: string; readOnly: boolean; reviewsAvailable: boolean; selfAuthored: boolean; demo: boolean; providerURL: string; providerKind: "github" | "gitlab"; providerName: string; onSubmitted: () => void; onDirtyChange: (dirty: boolean) => void };
 const bodyLimit = 64 * 1024;
 
-export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, readOnly, reviewsAvailable, selfAuthored, demo, providerURL, onSubmitted, onDirtyChange }: Props) {
+export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, readOnly, reviewsAvailable, selfAuthored, demo, providerURL, providerKind, providerName, onSubmitted, onDirtyChange }: Props) {
   const [saved, setSaved] = useState<Drafts | null>(null);
   const [body, setBody] = useState("");
   const [action, setAction] = useState("comment");
@@ -111,7 +111,7 @@ export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, 
           }}>Copy into current draft</button>
         </>}
       </div>}
-      {reviewsAvailable && <ReviewSubmit providerId={providerId} itemId={itemId} revision={revision} version={saved?.current.deleted ? "" : saved?.current.version ?? ""} dirty={dirty} disabled={readOnly || loading || saving || !saved} demo={demo} providerURL={providerURL} csrfToken={csrfToken} onBusyChange={setReviewBusy} onSubmitted={() => { setAttempt((value) => value + 1); onSubmitted(); }} />}
+      {reviewsAvailable && <ReviewSubmit providerKind={providerKind} providerName={providerName} providerId={providerId} itemId={itemId} revision={revision} version={saved?.current.deleted ? "" : saved?.current.version ?? ""} dirty={dirty} disabled={readOnly || loading || saving || !saved} demo={demo} providerURL={providerURL} csrfToken={csrfToken} onBusyChange={setReviewBusy} onSubmitted={() => { setAttempt((value) => value + 1); onSubmitted(); }} />}
     </section>
   );
 }

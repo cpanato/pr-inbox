@@ -108,7 +108,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"csrfToken":          csrfToken,
 			"viewer":             primary.Viewer.Login,
 			"readOnly":           h.readOnly,
-			"mutationsAvailable": primary.Kind == "github" && h.services[0].ReviewsAvailable() && !h.readOnly,
+			"mutationsAvailable": h.services[0].ReviewsAvailable() && !h.readOnly,
 			"host":               primary.Host,
 			"providers":          providers,
 		})

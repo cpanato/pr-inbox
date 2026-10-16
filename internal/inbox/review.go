@@ -17,9 +17,9 @@ var ErrReviewUnavailable = errors.New("review submission is not available for th
 var ErrReviewConfirmation = errors.New("review confirmation expired or is invalid; preview the saved draft again")
 
 type reviewConfirmation struct {
-	id                         int64
-	revision, version, session string
-	expires                    time.Time
+	id                                      int64
+	revision, version, session, operationID string
+	expires                                 time.Time
 }
 type ReviewPreview struct {
 	Token     string    `json:"token"`
@@ -30,11 +30,12 @@ type ReviewPreview struct {
 	Body      string    `json:"body"`
 	Action    string    `json:"action"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	Notices   []string  `json:"notices,omitempty"`
 }
 
 func (s *Service) ReviewsAvailable() bool {
 	_, ok := s.provider.(provider.ReviewProvider)
-	return ok && s.Info().Kind == "github"
+	return ok && (s.Info().Kind == "github" || s.Info().Kind == "gitlab")
 }
 func (s *Service) reviewContext(id int64, revision string) (provider.ReviewProvider, provider.DiffSource, string, error) {
 	if !s.ReviewsAvailable() {
@@ -91,7 +92,18 @@ func (s *Service) PrepareReview(ctx context.Context, id int64, revision, version
 	if err := p.ReviewPreflight(ctx, source, draft.Action); err != nil {
 		return ReviewPreview{}, err
 	}
-	preview := ReviewPreview{Token: rand.Text(), Account: s.Info().Viewer.Login, Repo: source.Repo, Number: source.Number, HeadSHA: source.HeadSHA, Body: draft.Body, Action: draft.Action, ExpiresAt: time.Now().Add(5 * time.Minute)}
+	operationID := rand.Text()
+	source.ReviewOperationID = operationID
+	content := draft.Body
+	var notices []string
+	if formatter, ok := p.(provider.ReviewContentProvider); ok {
+		content, err = formatter.ReviewContent(source, draft.Body, draft.Action)
+		if err != nil {
+			return ReviewPreview{}, err
+		}
+		notices = formatter.ReviewNotices(draft.Action)
+	}
+	preview := ReviewPreview{Token: rand.Text(), Account: s.Info().Viewer.Login, Repo: source.Repo, Number: source.Number, HeadSHA: source.HeadSHA, Body: content, Action: draft.Action, ExpiresAt: time.Now().Add(5 * time.Minute), Notices: notices}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.confirmations == nil {
@@ -108,7 +120,7 @@ func (s *Service) PrepareReview(ctx context.Context, id int64, revision, version
 			break
 		}
 	}
-	s.confirmations[preview.Token] = reviewConfirmation{id: id, revision: revision, version: version, session: session, expires: preview.ExpiresAt}
+	s.confirmations[preview.Token] = reviewConfirmation{id: id, revision: revision, version: version, session: session, operationID: operationID, expires: preview.ExpiresAt}
 	return preview, nil
 }
 func (s *Service) SubmitReview(ctx context.Context, id int64, revision, token, session string) (*state.ReviewOperation, error) {
@@ -151,13 +163,22 @@ func (s *Service) SubmitReview(ctx context.Context, id int64, revision, token, s
 		if err := p.ReviewPreflight(ctx, source, draft.Action); err != nil {
 			return err
 		}
-		hash := sha256.Sum256([]byte(draft.Body))
-		op := state.ReviewOperation{ID: rand.Text(), Status: "sending", HeadSHA: source.HeadSHA, DraftVersion: draft.Version, Action: draft.Action, BodyHash: hex.EncodeToString(hash[:]), StartedAt: time.Now().UTC()}
+		source.ReviewOperationID = confirmation.operationID
+		content := draft.Body
+		if formatter, ok := p.(provider.ReviewContentProvider); ok {
+			content, err = formatter.ReviewContent(source, draft.Body, draft.Action)
+			if err != nil {
+				return err
+			}
+		}
+		hash := sha256.Sum256([]byte(content))
+		op := state.ReviewOperation{ID: confirmation.operationID, Status: "sending", HeadSHA: source.HeadSHA, DraftVersion: draft.Version, Action: draft.Action, BodyHash: hex.EncodeToString(hash[:]), StartedAt: time.Now().UTC()}
 		if err := tx.Record(op); err != nil {
 			return err
 		} // No POST unless the operation is durable.
-		review, sendErr := p.SubmitReview(ctx, source, draft.Body, draft.Action)
+		review, sendErr := p.SubmitReview(ctx, source, content, draft.Action)
 		if sendErr != nil {
+			op.Result = review
 			op.Status = "unknown"
 			if errors.Is(sendErr, provider.ErrReviewRejected) {
 				op.Status = "rejected"
@@ -224,8 +245,14 @@ func (s *Service) ReconcileReview(ctx context.Context, id int64, revision string
 			return nil
 		}
 		if op.Status != "confirmed" {
-			review, err := p.FindReview(ctx, source, provider.ReviewMatch{HeadSHA: op.HeadSHA, Action: op.Action, BodyHash: op.BodyHash, StartedAt: op.StartedAt})
+			review, err := p.FindReview(ctx, source, provider.ReviewMatch{OperationID: op.ID, Result: op.Result, HeadSHA: op.HeadSHA, Action: op.Action, BodyHash: op.BodyHash, StartedAt: op.StartedAt})
 			if err != nil {
+				if review.ID > 0 {
+					op.Result = review
+					if recordErr := tx.Record(*op); recordErr != nil {
+						return provider.ErrReviewUnknown
+					}
+				}
 				return err
 			}
 			op.Status = "confirmed"
