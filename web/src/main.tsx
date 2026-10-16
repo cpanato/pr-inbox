@@ -5,6 +5,7 @@ import { request } from "./api";
 import { DiffWorkspace } from "./DiffWorkspace";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { ChecksPanel } from "./ChecksPanel";
+import { ReviewDraft } from "./ReviewDraft";
 
 type PullRequest = {
   id: number;
@@ -330,6 +331,11 @@ function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: P
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const draftDirty = useRef(false);
+  const onDraftDirty = useCallback((dirty: boolean) => { draftDirty.current = dirty; }, []);
+  function confirmLeavingDraft() { return !draftDirty.current || window.confirm("Leave without saving your draft changes? Use Save draft to keep them."); }
+  function closeDetails() { if (confirmLeavingDraft()) onClose(); }
+  function reloadDetails() { if (confirmLeavingDraft()) setAttempt((value) => value + 1); }
   const isGitLab = provider.kind === "gitlab";
 
   useEffect(() => {
@@ -356,10 +362,10 @@ function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: P
 
   const current = detail ?? item;
   return (
-    <dialog className="detail-dialog" ref={dialog} aria-labelledby="detail-title" onCancel={onClose} onClose={onClose}>
+    <dialog className="detail-dialog" ref={dialog} aria-labelledby="detail-title" onCancel={(event) => { event.preventDefault(); closeDetails(); }} onClose={onClose}>
       <div className="detail-toolbar">
         <span>{item.repo} {isGitLab ? "!" : "#"}{item.number}</span>
-        <button type="button" className="refresh-button" onClick={onClose} autoFocus>Close</button>
+        <button type="button" className="refresh-button" onClick={closeDetails} autoFocus>Close</button>
       </div>
       <h2 id="detail-title">{current.title}</h2>
       <p className="detail-author">Opened by <strong>{current.author}</strong></p>
@@ -383,8 +389,9 @@ function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: P
             <p className="detail-format-note">Shown as plain text.</p>
             <div className="description-text">{detail.description || "No description provided."}</div>
           </section>
+          <ReviewDraft key={`draft:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} csrfToken={csrfToken} readOnly={readOnly} onDirtyChange={onDraftDirty} />
           <ChecksPanel key={`checks:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} />
-          <DiffWorkspace csrfToken={csrfToken} readOnly={readOnly} key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={() => setAttempt((value) => value + 1)} />
+          <DiffWorkspace csrfToken={csrfToken} readOnly={readOnly} key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={reloadDetails} />
           <DiscussionPanel key={`discussion:${detail.revision}`} providerId={provider.id} itemId={item.id} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} headSHA={detail.headSHA} />
         </>
       )}

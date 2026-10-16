@@ -78,18 +78,36 @@ concurrent updates to the same marker use the last successful write. Storage
 errors are shown without claiming that progress was saved. `--read-only` lets
 you read existing progress but disables changes. Nothing is sent to the provider.
 
+The **Local review draft** editor saves an overall review body and intent
+(comment, approve or request changes) for the inspected head commit. Click
+**Save draft** explicitly; unsaved changes are labeled and closing the panel,
+reloading details or leaving the page prompts before discarding them. Drafts
+survive app restarts and are separated by provider, host, account and PR/MR.
+A changed head starts a separate draft. Earlier drafts can be read and explicitly
+copied into the current editor; copying does not save or submit them. Up to 100
+earlier commits are listed, most recently updated first.
+
+Drafts have a 64 KiB UTF-8 text limit and are stored as plain text under
+`drafts-v1` in the same state directory as viewed markers. Atomic writes, process
+locks and version checks protect against concurrent overwrites. A conflict or
+storage failure retains the editor text; copy it before choosing **Reload saved
+draft**. **Delete draft** asks for confirmation and clears only the saved draft
+for the inspected commit, retaining a version record to reject stale writers.
+`--read-only` permits reading existing drafts and prevents saves and deletions.
+Review intent is local planning only: this version never submits reviews.
+
 ## Roadmap
 
 Work in delivery order. Unchecked items are planned and the scope may change.
 
 - [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
-- [ ] **Milestone 2 – Review workspace:**
+- [x] **Milestone 2 – Review workspace:**
   - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
   - [x] Read-only discussion timeline with pagination and provider links
   - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
   - [x] Detailed check results and provider links
   - [x] Local file "viewed" markers pinned to the inspected revision
-  - [ ] Local review drafts
+  - [x] Local review drafts
 - [ ] **Milestone 3 – Overall review writes:**
   - Submit an overall review (approve, comment, request changes) after an explicit confirmation
   - Safety checks that the head commit is unchanged and no pending review exists
@@ -134,8 +152,8 @@ Useful options:
 | `./dist/pr-inbox --gitlab gitlab.example.com` | Also lists merge requests from a self-hosted GitLab. Repeat `--gitlab` for each instance. gitlab.com is added automatically. See [GitLab](#gitlab). |
 | `./dist/pr-inbox --no-github` | Skips GitHub, for people who only use GitLab. |
 | `./dist/pr-inbox --no-gitlab` | Skips the automatic gitlab.com tab. |
-| `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers. Existing progress can still be read. The current version only reads from providers. Defaults to off. |
-| `./dist/pr-inbox --state-dir PATH` | Chooses the directory for local review progress. |
+| `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers and review drafts. Existing progress and drafts can still be read. The current version only reads from providers. Defaults to off. |
+| `./dist/pr-inbox --state-dir PATH` | Chooses the directory for local review progress and drafts. |
 | `./dist/pr-inbox --demo` | Runs with built-in sample data instead of GitHub. No `gh` or authentication is needed and no network calls are made, so it is a safe way to try the interface (and how the README screenshot is produced). Can be combined with `--org` and `--no-open`, but not with `doctor`. |
 | `./dist/pr-inbox doctor` | Checks that `gh` is installed and authenticated and that the GitHub API (and every `--gitlab` host) is reachable, prints the accounts, then exits without starting the server. `--doctor` works too. |
 

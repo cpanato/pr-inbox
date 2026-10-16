@@ -130,6 +130,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
+	case "/api/draft":
+		h.draft(w, r)
 	case "/api/viewed":
 		h.viewed(w, r)
 	case "/api/detail", "/api/diff", "/api/discussion", "/api/checks":
