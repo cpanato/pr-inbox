@@ -38,15 +38,21 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 			SHA string `json:"sha"`
 		} `json:"head"`
 		Base struct {
-			Ref string `json:"ref"`
-			SHA string `json:"sha"`
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"base"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(repo), pr.Number)
 	if err := c.get(ctx, path, nil, &response); err != nil {
 		return provider.Detail{}, err
 	}
-	if response.ID != pr.ID || response.Number != pr.Number || response.Head.SHA == "" {
+	// Search results use the issue database ID, whereas this endpoint returns
+	// the distinct pull-request database ID. Keep the inbox ID and validate
+	// the server-resolved repository/number instead.
+	if response.ID <= 0 || response.Number != pr.Number || !strings.EqualFold(response.Base.Repo.FullName, pr.Repo) || response.Head.SHA == "" {
 		return provider.Detail{}, fmt.Errorf("GitHub returned incomplete or mismatched pull request details")
 	}
 	pr.Title, pr.Author, pr.Draft = response.Title, response.User.Login, response.Draft
