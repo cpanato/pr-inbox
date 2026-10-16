@@ -169,5 +169,5 @@ func atomicDraft(dir, target string, data []byte) error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), target)
+	return replaceDraftFile(file.Name(), target)
 }

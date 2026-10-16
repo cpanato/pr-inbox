@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -32,4 +33,17 @@ func lockDraft(ctx context.Context, path string) (func(), error) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+}
+
+// Flush the directory entry as well as the file before permitting a remote write.
+func replaceDraftFile(source, target string) error {
+	if err := os.Rename(source, target); err != nil {
+		return err
+	}
+	directory, err := os.Open(filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }

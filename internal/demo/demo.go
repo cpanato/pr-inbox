@@ -6,6 +6,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpanato/pr-inbox/internal/provider"
@@ -15,10 +16,12 @@ import (
 const Login = "you"
 
 type Client struct {
-	kind   string
-	review []provider.PullRequest
-	mine   []provider.PullRequest
-	ci     map[int64]string
+	kind      string
+	reviewMu  sync.Mutex
+	submitted map[int64][]demoReview
+	review    []provider.PullRequest
+	mine      []provider.PullRequest
+	ci        map[int64]string
 }
 
 // New returns the GitHub sample data.
