@@ -51,6 +51,7 @@ type ProviderInfo = {
   kind: "github" | "gitlab";
   host: string;
   viewer: string;
+  reviewsAvailable: boolean;
 };
 
 type Session = {
@@ -194,7 +195,7 @@ function App() {
             ) : (
               <span className="connection"><i /> {hostName} not signed in</span>
             )}
-            {(session.readOnly || !session.mutationsAvailable) && <span className="mode-badge">Read only</span>}
+            {(session.readOnly || !provider?.reviewsAvailable) && <span className="mode-badge">Read only</span>}
           </div>
         )}
       </header>
@@ -319,18 +320,19 @@ function App() {
         )}
       </main>
       {selectedPR && provider && (
-        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} csrfToken={csrfToken} readOnly={session?.readOnly ?? true} onClose={() => setSelectedPR(null)} />
+        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} csrfToken={csrfToken} readOnly={session?.readOnly ?? true} onReviewSubmitted={() => void loadInbox(provider.id, true, csrfToken)} onClose={() => setSelectedPR(null)} />
       )}
       <footer className="footer">Local to this device · No PR code is executed</footer>
     </div>
   );
 }
 
-function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: PullRequest; provider: ProviderInfo; csrfToken: string; readOnly: boolean; onClose: () => void }) {
+function DetailPanel({ item, provider, csrfToken, readOnly, onReviewSubmitted, onClose }: { item: PullRequest; provider: ProviderInfo; csrfToken: string; readOnly: boolean; onReviewSubmitted: () => void; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [discussionEpoch, setDiscussionEpoch] = useState(0);
   const draftDirty = useRef(false);
   const onDraftDirty = useCallback((dirty: boolean) => { draftDirty.current = dirty; }, []);
   function confirmLeavingDraft() { return !draftDirty.current || window.confirm("Leave without saving your draft changes? Use Save draft to keep them."); }
@@ -389,10 +391,10 @@ function DetailPanel({ item, provider, csrfToken, readOnly, onClose }: { item: P
             <p className="detail-format-note">Shown as plain text.</p>
             <div className="description-text">{detail.description || "No description provided."}</div>
           </section>
-          <ReviewDraft key={`draft:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} csrfToken={csrfToken} readOnly={readOnly} onDirtyChange={onDraftDirty} />
+          <ReviewDraft selfAuthored={detail.author.toLowerCase() === provider.viewer.toLowerCase()} reviewsAvailable={provider.reviewsAvailable} demo={provider.id.startsWith("demo-")} providerURL={item.html_url} onSubmitted={() => { setDiscussionEpoch((value) => value + 1); onReviewSubmitted(); }} key={`draft:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} csrfToken={csrfToken} readOnly={readOnly} onDirtyChange={onDraftDirty} />
           <ChecksPanel key={`checks:${detail.revision}`} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} />
           <DiffWorkspace csrfToken={csrfToken} readOnly={readOnly} key={detail.revision} providerId={provider.id} itemId={item.id} revision={detail.revision} headSHA={detail.headSHA} providerName={provider.name} providerURL={item.html_url} onReload={reloadDetails} />
-          <DiscussionPanel key={`discussion:${detail.revision}`} providerId={provider.id} itemId={item.id} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} headSHA={detail.headSHA} />
+          <DiscussionPanel key={`discussion:${detail.revision}:${discussionEpoch}`} providerId={provider.id} itemId={item.id} providerName={provider.name} providerKind={provider.kind} providerURL={item.html_url} headSHA={detail.headSHA} />
         </>
       )}
     </dialog>

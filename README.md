@@ -17,7 +17,7 @@ The screenshots use sample data (`--demo`). With more than one provider, each ge
 
 Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
 organization and repository filters, CI status labels, capped discovery, explicit
-direct-request-only coverage, and a local UI that reads from providers. Clicking a PR/MR title
+direct-request-only coverage, and a local review workspace. Clicking a PR/MR title
 opens a detail panel with its description (plain text), author, branches, head
 commit, and CI summary for that commit. The panel is available for GitHub,
 GitLab, and demo data. A file browser shows unified diffs pinned to the inspected
@@ -94,7 +94,50 @@ storage failure retains the editor text; copy it before choosing **Reload saved
 draft**. **Delete draft** asks for confirmation and clears only the saved draft
 for the inspected commit, retaining a version record to reject stale writers.
 `--read-only` permits reading existing drafts and prevents saves and deletions.
-Review intent is local planning only: this version never submits reviews.
+Saving a draft never submits it. GitHub reviews use the separate confirmation flow below;
+GitLab review intent remains local planning only.
+
+## Submitting a GitHub review
+
+Save a draft, choose **Preview review submission**, and inspect the confirmation:
+account, repository/PR number, full head SHA, action and complete text. Check the
+acknowledgment box, then choose **Confirm and submit review**. A preview expires
+after five minutes and cannot be reused. Editing or saving another draft requires
+a new confirmation. GitLab keeps local drafts and does not offer submission yet.
+
+Comments and requests for changes require nonblank text; approval text is optional.
+You cannot approve or request changes on your own PR. The server rechecks the
+GitHub account, the open PR's head and your pending reviews before the write.
+A changed head or existing pending review stops submission and preserves the draft.
+Finish pending reviews on GitHub. Review history inspection is limited to 1,000
+entries; if completeness cannot be established, continue on GitHub instead.
+GitHub remains the authority on eligibility and token permissions; fine-grained
+tokens need **Pull requests: write** for submission. See the
+[GitHub review API](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request).
+
+Submission sends an overall review with an explicit `commit_id`. A push may race
+the final check: the returned review remains associated with the inspected SHA,
+and the app checks the head afterward and reports changes or an unavailable check.
+A confirmed review clears only the draft version that was sent and refreshes the
+queue and discussion. It does not imply that the PR is ready to merge.
+
+The app records each attempt before the POST and serializes submission with draft
+writes across local processes sharing `--state-dir`. It retains the latest
+operation per account/provider/PR in `.review-operation` beside the draft records,
+including the review ID, action, SHA, body hash and attempt time, without copying
+the review text. After a timeout, malformed response, crash or unknown server
+response, new submissions are blocked. No POST is automatically retried.
+**Check outcome on GitHub** performs read requests and matches actor, commit,
+action, body hash and submission time (within two minutes before to five minutes
+after the attempt). Only one matching review can confirm the outcome; absent or
+ambiguous matches remain unknown. Inspect GitHub directly when necessary; do not
+repeat an uncertain submission manually without checking it. Keep the state
+directory: clearing it or using another directory removes local duplicate protection.
+Independent devices do not share operation tracking.
+
+`--read-only` blocks submission and reconciliation as well as local draft writes.
+In `--demo`, the GitHub tab simulates the complete flow without any remote write;
+the GitLab tab continues to provide local drafts only.
 
 ## Roadmap
 
@@ -109,9 +152,10 @@ Work in delivery order. Unchecked items are planned and the scope may change.
   - [x] Local file "viewed" markers pinned to the inspected revision
   - [x] Local review drafts
 - [ ] **Milestone 3 – Overall review writes:**
-  - Submit an overall review (approve, comment, request changes) after an explicit confirmation
-  - Safety checks that the head commit is unchanged and no pending review exists
-  - Operation tracking and refresh after submitting
+  - [x] GitHub overall review submission (approve, comment, request changes) after explicit confirmation
+  - [x] GitHub checks for unchanged head, account identity, open PR and pending review
+  - [x] Persistent operation tracking, outcome reconciliation and refresh after submission
+  - [ ] Equivalent review submission for GitLab
 - [ ] **GitLab support:**
   - [x] Provider-neutral internal model (pull request / merge request)
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
@@ -152,7 +196,7 @@ Useful options:
 | `./dist/pr-inbox --gitlab gitlab.example.com` | Also lists merge requests from a self-hosted GitLab. Repeat `--gitlab` for each instance. gitlab.com is added automatically. See [GitLab](#gitlab). |
 | `./dist/pr-inbox --no-github` | Skips GitHub, for people who only use GitLab. |
 | `./dist/pr-inbox --no-gitlab` | Skips the automatic gitlab.com tab. |
-| `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers and review drafts. Existing progress and drafts can still be read. The current version only reads from providers. Defaults to off. |
+| `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers and review drafts. Existing progress and drafts can still be read. Also disables GitHub review submission and outcome reconciliation. Defaults to off. |
 | `./dist/pr-inbox --state-dir PATH` | Chooses the directory for local review progress and drafts. |
 | `./dist/pr-inbox --demo` | Runs with built-in sample data instead of GitHub. No `gh` or authentication is needed and no network calls are made, so it is a safe way to try the interface (and how the README screenshot is produced). Can be combined with `--org` and `--no-open`, but not with `doctor`. |
 | `./dist/pr-inbox doctor` | Checks that `gh` is installed and authenticated and that the GitHub API (and every `--gitlab` host) is reachable, prints the accounts, then exits without starting the server. `--doctor` works too. |

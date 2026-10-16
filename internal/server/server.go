@@ -97,18 +97,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		csrfToken := h.sessions[cookie.Value]
 		h.mu.Unlock()
-		providers := make([]map[string]string, 0, len(h.services))
+		providers := make([]map[string]any, 0, len(h.services))
 		for _, service := range h.services {
 			info := service.Info()
-			providers = append(providers, map[string]string{
-				"id": info.ID, "name": info.Name, "kind": info.Kind, "host": info.Host, "viewer": info.Viewer.Login,
+			providers = append(providers, map[string]any{
+				"id": info.ID, "name": info.Name, "kind": info.Kind, "host": info.Host, "viewer": info.Viewer.Login, "reviewsAvailable": service.ReviewsAvailable() && !h.readOnly,
 			})
 		}
 		h.respond(w, http.StatusOK, map[string]any{
 			"csrfToken":          csrfToken,
 			"viewer":             primary.Viewer.Login,
 			"readOnly":           h.readOnly,
-			"mutationsAvailable": false,
+			"mutationsAvailable": primary.Kind == "github" && h.services[0].ReviewsAvailable() && !h.readOnly,
 			"host":               primary.Host,
 			"providers":          providers,
 		})
@@ -130,6 +130,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.inbox(w, r, true)
+	case "/api/review", "/api/review/prepare", "/api/review/submit", "/api/review/reconcile":
+		h.review(w, r)
 	case "/api/draft":
 		h.draft(w, r)
 	case "/api/viewed":

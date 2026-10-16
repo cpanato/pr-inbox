@@ -5,6 +5,7 @@ import (
 	"errors"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // Opening without sharing holds an exclusive lock released by the kernel on exit.
@@ -27,4 +28,23 @@ func lockDraft(ctx context.Context, path string) (func(), error) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+}
+
+var moveDraftFile = syscall.NewLazyDLL("kernel32.dll").NewProc("MoveFileExW")
+
+func replaceDraftFile(source, target string) error {
+	from, err := syscall.UTF16PtrFromString(source)
+	if err != nil {
+		return err
+	}
+	to, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	const replaceExistingAndWriteThrough = 0x1 | 0x8
+	result, _, callErr := moveDraftFile.Call(uintptr(unsafe.Pointer(from)), uintptr(unsafe.Pointer(to)), replaceExistingAndWriteThrough)
+	if result == 0 {
+		return callErr
+	}
+	return nil
 }

@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { request, type APIError } from "./api";
+import { ReviewSubmit } from "./ReviewSubmit";
 
 type Draft = { headSHA: string; body: string; action: string; version: string; updatedAt: string; deleted?: boolean };
 type Drafts = { current: Draft; previous: { headSHA: string; updatedAt: string }[]; truncated: boolean };
-type Props = { providerId: string; itemId: number; revision: string; headSHA: string; csrfToken: string; readOnly: boolean; onDirtyChange: (dirty: boolean) => void };
+type Props = { providerId: string; itemId: number; revision: string; headSHA: string; csrfToken: string; readOnly: boolean; reviewsAvailable: boolean; selfAuthored: boolean; demo: boolean; providerURL: string; onSubmitted: () => void; onDirtyChange: (dirty: boolean) => void };
 const bodyLimit = 64 * 1024;
 
-export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, readOnly, onDirtyChange }: Props) {
+export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, readOnly, reviewsAvailable, selfAuthored, demo, providerURL, onSubmitted, onDirtyChange }: Props) {
   const [saved, setSaved] = useState<Drafts | null>(null);
   const [body, setBody] = useState("");
   const [action, setAction] = useState("comment");
   const [error, setError] = useState<APIError | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [historical, setHistorical] = useState<Draft | null>(null);
   const [historyHead, setHistoryHead] = useState("");
@@ -34,14 +36,14 @@ export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, 
     return () => controller.abort();
   }, [url, headSHA, attempt]);
 
-  useEffect(() => { onDirtyChange(dirty || saving); }, [dirty, saving, onDirtyChange]);
+  useEffect(() => { onDirtyChange(dirty || saving || reviewBusy); }, [dirty, saving, reviewBusy, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   useEffect(() => {
-    if (!dirty && !saving) return;
+    if (!dirty && !saving && !reviewBusy) return;
     const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", preventLoss);
     return () => window.removeEventListener("beforeunload", preventLoss);
-  }, [dirty, saving]);
+  }, [dirty, saving, reviewBusy]);
 
   useEffect(() => {
     setHistorical(null); setHistoryError("");
@@ -71,22 +73,22 @@ export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, 
   return (
     <section className="review-draft" aria-labelledby="review-draft-heading">
       <h3 id="review-draft-heading">Local review draft</h3>
-      <p className="detail-format-note">Saved only on this device for commit <code>{headSHA.slice(0, 12)}</code>. Nothing is submitted to the provider.</p>
+      <p className="detail-format-note">Saved only on this device for commit <code>{headSHA.slice(0, 12)}</code>. Saving a draft does not submit it to the provider.</p>
       {loading && <p role="status">Loading saved draft…</p>}
-      {error && <div className="notice error-notice" role="alert"><p>{error.message}</p><p>Your text is still in the editor. Copy it before reloading if you want to keep it.</p><button className="refresh-button" type="button" disabled={saving || loading} onClick={reload}>Reload saved draft</button></div>}
+      {error && <div className="notice error-notice" role="alert"><p>{error.message}</p><p>Your text is still in the editor. Copy it before reloading if you want to keep it.</p><button className="refresh-button" type="button" disabled={saving || reviewBusy || loading} onClick={reload}>Reload saved draft</button></div>}
       <label className="draft-field">Review intent
-        <select aria-label="Draft review intent" value={action} disabled={readOnly || !saved || loading || saving} onChange={(event) => setAction(event.target.value)}>
-          <option value="comment">Comment</option><option value="approve">Approve</option><option value="request_changes">Request changes</option>
+        <select aria-label="Draft review intent" value={action} disabled={readOnly || !saved || loading || saving || reviewBusy} onChange={(event) => setAction(event.target.value)}>
+          <option value="comment">Comment</option><option value="approve" disabled={selfAuthored}>Approve</option><option value="request_changes" disabled={selfAuthored}>Request changes</option>
         </select>
       </label>
       <label className="draft-field">Review text
-        <textarea aria-label="Review draft text" rows={8} value={body} readOnly={readOnly} disabled={!saved || loading || saving} onChange={(event) => setBody(event.target.value)} placeholder="Write a review to save locally…" />
+        <textarea aria-label="Review draft text" rows={8} value={body} readOnly={readOnly} disabled={!saved || loading || saving || reviewBusy} onChange={(event) => setBody(event.target.value)} placeholder="Write a review to save locally…" />
       </label>
       <p className="detail-format-note">{bytes.toLocaleString()} / 65,536 bytes. Text is stored and displayed as plain text.</p>
       {bytes > bodyLimit && <p className="notice error-notice" role="alert">Draft exceeds the 64 KiB limit. Shorten the text before saving.</p>}
       <div className="draft-actions">
-        <button className="refresh-button" type="button" disabled={readOnly || !saved || loading || saving || !dirty || bytes > bodyLimit} onClick={() => void save()}>Save draft</button>
-        <button className="refresh-button" type="button" disabled={readOnly || !saved?.current.version || saved.current.deleted || loading || saving} onClick={() => void save(true)}>Delete draft</button>
+        <button className="refresh-button" type="button" disabled={readOnly || !saved || loading || saving || reviewBusy || !dirty || bytes > bodyLimit} onClick={() => void save()}>Save draft</button>
+        <button className="refresh-button" type="button" disabled={readOnly || !saved?.current.version || saved.current.deleted || loading || saving || reviewBusy} onClick={() => void save(true)}>Delete draft</button>
         <span className="detail-format-note" role="status">{readOnly ? "Read-only mode: drafts cannot be changed." : saving ? "Saving…" : dirty ? "Unsaved changes — use Save draft before closing." : saved?.current.version && !saved.current.deleted ? `Saved locally at ${new Date(saved.current.updatedAt).toLocaleString()}.` : saved ? "No saved draft for this commit." : "Draft not loaded."}</span>
       </div>
       {saved && saved.previous.length > 0 && <div className="draft-history notice">
@@ -103,12 +105,13 @@ export function ReviewDraft({ providerId, itemId, revision, headSHA, csrfToken, 
         {historical && <>
           <p>Commit <code>{historical.headSHA}</code> · {historical.action.replace(/_/g, " ")}{historical.deleted ? " · deleted in another tab" : ""}</p>
           <textarea aria-label="Earlier draft text" rows={6} readOnly value={historical.body} />
-          <button className="refresh-button" type="button" disabled={readOnly || loading || saving || historical.deleted} onClick={() => {
+          <button className="refresh-button" type="button" disabled={readOnly || loading || saving || reviewBusy || historical.deleted} onClick={() => {
             if (dirty && !window.confirm("Replace your unsaved text with this earlier draft?")) return;
             setBody(historical.body); setAction(historical.action);
           }}>Copy into current draft</button>
         </>}
       </div>}
+      {reviewsAvailable && <ReviewSubmit providerId={providerId} itemId={itemId} revision={revision} version={saved?.current.deleted ? "" : saved?.current.version ?? ""} dirty={dirty} disabled={readOnly || loading || saving || !saved} demo={demo} providerURL={providerURL} csrfToken={csrfToken} onBusyChange={setReviewBusy} onSubmitted={() => { setAttempt((value) => value + 1); onSubmitted(); }} />}
     </section>
   );
 }

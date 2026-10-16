@@ -27,6 +27,7 @@ type Service struct {
 	revisionOrder []string
 	viewable      map[string]map[string]bool
 	reviewStore   *state.Store
+	confirmations map[string]reviewConfirmation
 }
 
 type PullRequest struct {
