@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cpanato/pr-inbox/internal/gitlab"
 	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
@@ -17,9 +18,6 @@ type demoReview struct {
 }
 
 func (c *Client) ReviewPreflight(_ context.Context, source provider.DiffSource, action string) error {
-	if c.kind != "github" {
-		return provider.ErrInvalidReview
-	}
 	if source.HeadSHA != "a1b2c3d4e5f6789012345678901234567890abcdef" {
 		return provider.ErrHeadChanged
 	}
@@ -41,7 +39,7 @@ func (c *Client) SubmitReview(ctx context.Context, source provider.DiffSource, b
 		c.submitted = map[int64][]demoReview{}
 	}
 	id := int64(1000 + len(c.submitted[source.ID]))
-	result := provider.ReviewResult{ID: id, HeadSHA: source.HeadSHA, HTMLURL: source.HTMLURL + "#pullrequestreview-" + strconv.FormatInt(id, 10), State: map[string]string{"comment": "COMMENTED", "approve": "APPROVED", "request_changes": "CHANGES_REQUESTED"}[action]}
+	result := provider.ReviewResult{ID: id, HeadSHA: source.HeadSHA, HTMLURL: source.HTMLURL + map[string]string{"github": "#pullrequestreview-", "gitlab": "#note_"}[c.kind] + strconv.FormatInt(id, 10), State: map[string]string{"comment": "COMMENTED", "approve": "APPROVED", "request_changes": "CHANGES_REQUESTED"}[action]}
 	c.submitted[source.ID] = append(c.submitted[source.ID], demoReview{result: result, body: body, action: action, created: time.Now().UTC()})
 	return result, nil
 }
@@ -59,4 +57,17 @@ func (c *Client) FindReview(_ context.Context, source provider.DiffSource, match
 		return found[0], nil
 	}
 	return provider.ReviewResult{}, provider.ErrReviewUnknown
+}
+
+func (c *Client) ReviewContent(source provider.DiffSource, body, action string) (string, error) {
+	if c.kind == "gitlab" {
+		return gitlab.FormatReviewContent(source, body, action)
+	}
+	return body, nil
+}
+func (c *Client) ReviewNotices(action string) []string {
+	if c.kind == "gitlab" {
+		return gitlab.ReviewWarnings(action)
+	}
+	return nil
 }

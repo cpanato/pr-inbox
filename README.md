@@ -95,7 +95,7 @@ draft**. **Delete draft** asks for confirmation and clears only the saved draft
 for the inspected commit, retaining a version record to reject stale writers.
 `--read-only` permits reading existing drafts and prevents saves and deletions.
 Saving a draft never submits it. GitHub reviews use the separate confirmation flow below;
-GitLab review intent remains local planning only.
+GitLab uses the provider-specific flow described below.
 
 ## Submitting a GitHub review
 
@@ -103,7 +103,7 @@ Save a draft, choose **Preview review submission**, and inspect the confirmation
 account, repository/PR number, full head SHA, action and complete text. Check the
 acknowledgment box, then choose **Confirm and submit review**. A preview expires
 after five minutes and cannot be reused. Editing or saving another draft requires
-a new confirmation. GitLab keeps local drafts and does not offer submission yet.
+a new confirmation. GitLab uses the same preview and explicit confirmation, with different effects described below.
 
 Comments and requests for changes require nonblank text; approval text is optional.
 You cannot approve or request changes on your own PR. The server rechecks the
@@ -137,11 +137,57 @@ Independent devices do not share operation tracking.
 
 `--read-only` blocks submission and reconciliation as well as local draft writes.
 In `--demo`, the GitHub tab simulates the complete flow without any remote write;
-the GitLab tab continues to provide local drafts only.
+both provider tabs simulate submission without remote writes.
+
+## Submitting a GitLab review
+
+GitLab uses the same saved-draft confirmation and operation journal as GitHub.
+The confirmation shows the exact summary note, including the inspected SHA and
+an operation reference used to match the result after a lost response.
+Credentials need the **api** scope for writes (`read_api` remains sufficient for
+the inbox). Credentials are scoped to the configured GitLab host, and redirects
+are never followed.
+
+- **Comment:** posts a merge request summary note. It does not change reviewer state.
+- **Approve:** posts the summary note, then requests a formal approval with the
+  inspected `sha`. These are separate writes. If the approval fails or a push
+  intervenes, the note can remain published while approval is unconfirmed.
+  Password-required approvals must be completed on GitLab.
+- **Request changes:** publishes the summary through GitLab's review-publishing
+  endpoint and sets the actor's reviewer state to `requested_changes`. The actor
+  must already be an assigned reviewer. GitLab can remove the actor's existing
+  approval; merge-blocking behavior depends on the instance's tier/settings.
+  This endpoint also publishes the actor's pending comments. The app rejects
+  existing pending drafts, but drafts created concurrently in another client
+  may be published too. The confirmation discloses this effect; do not start
+  another pending review during submission.
+
+The app checks identity, open MR state, unchanged head and pending draft notes
+before writing. It rejects self-approval/change requests, already-recorded approvals
+or change requests, and slash-command lines in the draft to prevent unintended
+GitLab quick actions. GitLab notes and change requests lack an atomic head guard:
+the captured SHA is recorded in the summary, and a post-write check reports head
+changes. The formal approval endpoint additionally enforces `sha` server-side.
+
+A partial or unknown result preserves the draft and blocks another submission.
+The result panel links to the summary when available. Reconciliation performs
+reads only: it matches the actor, target MR, exact summary hash, operation reference
+and time. Approval recovery also requires the same current head and an approval
+timestamp near the attempt; missing timestamps remain unknown. Change requests
+are confirmed only when the reviewer state is actually `requested_changes`.
+An older instance that ignores the state parameter cannot turn a summary note
+into a falsely confirmed change request. Follow-up read lists are capped at 1,000
+entries; unavailable or incomplete endpoints stop verification. No partial operation
+is retried or automatically resumed. Complete unresolved cases on GitLab after
+checking what was published. `--read-only` blocks all these mutations.
+
+See the [notes API](https://docs.gitlab.com/api/notes/),
+[approvals API](https://docs.gitlab.com/api/merge_request_approvals/) and
+[draft review publication API](https://docs.gitlab.com/api/draft_notes/).
 
 ## Roadmap
 
-Delivery priority: finish Milestone 3, then implement Milestone 5. Milestone 4 is
+Milestone 3 is complete; Milestone 5 is the next delivery priority. Milestone 4 is
 recorded as backlog only; implementation is not planned. Unchecked items may
 change in scope. Milestone numbers identify the themes, not their delivery order.
 
@@ -153,11 +199,11 @@ change in scope. Milestone numbers identify the themes, not their delivery order
   - [x] Detailed check results and provider links
   - [x] Local file "viewed" markers pinned to the inspected revision
   - [x] Local review drafts
-- [ ] **Milestone 3 – Overall review writes:**
+- [x] **Milestone 3 – Overall review writes:**
   - [x] GitHub overall review submission (approve, comment, request changes) after explicit confirmation
   - [x] GitHub checks for unchanged head, account identity, open PR and pending review
   - [x] Persistent operation tracking, outcome reconciliation and refresh after submission
-  - [ ] Equivalent review submission for GitLab
+  - [x] GitLab comments, formal approvals and requested-changes state, with explicit provider effects and partial-outcome protection
 - [ ] **GitLab support:**
   - [x] Provider-neutral internal model (pull request / merge request)
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
@@ -181,7 +227,7 @@ change in scope. Milestone numbers identify the themes, not their delivery order
 - To see **GitHub**: the [GitHub CLI (`gh`)](https://cli.github.com/) logged in with
   `gh auth login`, or a `GITHUB_TOKEN` / `GH_TOKEN` environment variable.
 - To see **GitLab**: the [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) logged in
-  with `glab auth login`, or a personal access token with the `read_api` scope in
+  with `glab auth login`, or a personal access token with the `read_api` scope for reads or `api` for review submission in
   `GITLAB_TOKEN` (see [GitLab](#gitlab)).
 
 You only need the providers you use. GitHub and gitlab.com are tried automatically:
@@ -228,7 +274,7 @@ tab with login instructions (`--no-gitlab` turns it off). `--gitlab HOST` adds a
 self-hosted instance and can be repeated. Only HTTPS is supported.
 
 Create a [personal access token](https://docs.gitlab.com/user/profile/personal_access_tokens/)
-with the `read_api` scope and expose it through an environment variable. Tokens
+with the `read_api` scope for reads or `api` for review submission, and expose it through an environment variable. Tokens
 are never written to disk and are only sent to the host they belong to:
 
 | Host | Environment variable |
