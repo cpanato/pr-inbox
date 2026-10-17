@@ -157,6 +157,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.review(w, r)
 	case "/api/draft":
 		h.draft(w, r)
+	case "/api/preferences":
+		h.preferences(w, r)
 	case "/api/snooze":
 		h.snooze(w, r)
 	case "/api/viewed":

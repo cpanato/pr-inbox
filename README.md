@@ -245,6 +245,30 @@ retained per account, with deadlines at most one year ahead. Corrupt or unreadab
 state produces an explicit error and is not silently replaced. Read-only mode
 permits reading snoozes and showing overdue reminders, but blocks changes.
 
+## Saved filters and preferences
+
+Organization, repository, search text, ordering and the selected queue tab are
+saved automatically per provider, host and account in `--state-dir`. Preferences
+are shared across the queue tabs for that account. Wait for **Preferences saved**
+before closing; pending changes trigger a browser warning when leaving the page.
+Switching providers restores each provider's own choices, including after a server
+or machine restart. The previously selected provider itself is not persisted.
+
+**Restore defaults** clears filters, selects **To review** and restores oldest-first
+ordering. **Reload saved preferences** reads the latest saved configuration;
+when local changes are pending, its label explicitly says they will be discarded.
+If another window saved first, the app reports a conflict instead of overwriting
+its changes. Failed saves retain the current filters and offer a retry. Unavailable
+organizations/repositories stay selected with a label so the app does not silently
+broaden your filter. These filters apply only to loaded items; **Previously
+reviewed** keeps its fixed review-time ordering.
+
+Preferences use private, atomic files under `preferences-v1`, with a cross-process
+lock and a saved version to prevent stale writes. Corrupt files are reported and
+preserved. Reads do not create files. Read-only mode restores saved preferences
+and allows temporary filter changes, without saving them. No provider write is
+performed. Search text and filter values are stored locally, without credentials.
+
 ## Roadmap
 
 Milestone 3 is complete; Milestone 5 is the next delivery priority. Milestone 4 is
@@ -272,7 +296,7 @@ change in scope. Milestone numbers identify the themes, not their delivery order
   - [x] Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
   - [x] Detect changed heads since the last confirmed review, with explicit freshness and coverage
   - [x] Snooze items until a chosen date, persist deadlines across restarts and show overdue reminders
-  - Persist filters, ordering and preferences per account and provider
+  - [x] Persist filters, ordering and preferences per account and provider
   - Expand team review-request coverage, with explicit completeness limits
 - [ ] **Milestone 4 – Inline review (backlog only; no implementation planned):**
   - Comments on diff lines, including renamed files
