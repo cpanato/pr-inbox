@@ -37,6 +37,9 @@ type Queue = {
   ordering: string;
 };
 
+type ReviewedItem = PullRequest & { reviewedSHA: string; reviewAction: string; reviewedAt: string; reviewURL: string; headSHA?: string; headStatus: "changed" | "unchanged" | "unknown"; checkedAt?: string; state?: string };
+type ReviewedQueue = { items: ReviewedItem[]; totalCount: number; incomplete: boolean; fetchedAt: string; coverage: string };
+
 type Inbox = {
   fetchedAt: string;
   viewer: string;
@@ -82,9 +85,12 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [csrfToken, setCsrfToken] = useState("");
   const [inboxes, setInboxes] = useState<Record<string, Inbox>>({});
+  const [histories, setHistories] = useState<Record<string, ReviewedQueue>>({});
+  const [historyErrors, setHistoryErrors] = useState<Record<string, string>>({});
+  const [historyLoading, setHistoryLoading] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [activeProvider, setActiveProvider] = useState("");
-  const [activeTab, setActiveTab] = useState<"review" | "mine">("review");
+  const [activeTab, setActiveTab] = useState<"review" | "mine" | "history">("review");
   const [query, setQuery] = useState("");
   const [org, setOrg] = useState("");
   const [repo, setRepo] = useState("");
@@ -113,6 +119,19 @@ function App() {
     }
   }, []);
 
+  const loadHistory = useCallback(async (providerId: string, force = false, token = "") => {
+    setHistoryErrors((current) => ({ ...current, [providerId]: "" }));
+    setHistoryLoading((current) => [...current, providerId]);
+    try {
+      const data = await request<ReviewedQueue>(`${force ? "/api/history/refresh" : "/api/history"}?provider=${encodeURIComponent(providerId)}`, force ? { method: "POST" } : {}, force ? token : undefined);
+      setHistories((current) => ({ ...current, [providerId]: data }));
+    } catch (reason) { setHistoryErrors((current) => ({ ...current, [providerId]: reason instanceof Error ? reason.message : "Could not load review history." })); }
+    finally { setHistoryLoading((current) => current.filter((id) => id !== providerId)); }
+  }, []);
+  useEffect(() => {
+    if (activeTab === "history" && activeProvider && !histories[activeProvider] && !historyLoading.includes(activeProvider) && !historyErrors[activeProvider]) void loadHistory(activeProvider);
+  }, [activeTab, activeProvider, histories, historyLoading, historyErrors, loadHistory]);
+
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -139,9 +158,10 @@ function App() {
   const providers = session?.providers ?? [];
   const provider = providers.find((item) => item.id === activeProvider);
   const inbox = inboxes[activeProvider] ?? null;
-  const error = startupError || errors[activeProvider] || "";
-  const loading = loadingIds.includes(activeProvider);
-  const refreshing = loading && inbox !== null;
+  const history = histories[activeProvider];
+  const error = startupError || (activeTab === "history" ? historyErrors[activeProvider] : errors[activeProvider]) || "";
+  const loading = activeTab === "history" ? historyLoading.includes(activeProvider) : loadingIds.includes(activeProvider);
+  const refreshing = loading && (activeTab === "history" ? !!history : inbox !== null);
   const isGitLab = provider?.kind === "gitlab";
   const hostName = provider?.name ?? "GitHub";
   const noun = isGitLab ? "merge request" : "pull request";
@@ -156,7 +176,7 @@ function App() {
     if (!inboxes[id] && !loadingIds.includes(id)) void loadInbox(id, false, csrfToken);
   };
 
-  const queue = activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
+  const queue = activeTab === "history" ? history ? { ...history, truncated: false, ordering: "Most recently confirmed review first" } : undefined : activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
   const queueItems = queue?.items ?? [];
   const orgOptions = countBy(queueItems, (item) => orgOf(item.repo));
   const activeOrg = orgOptions.some(([name]) => name === org) ? org : "";
@@ -170,7 +190,7 @@ function App() {
     .filter((item) => !activeOrg || orgOf(item.repo) === activeOrg)
     .filter((item) => !activeRepo || item.repo === activeRepo)
     .filter((item) => `${item.repo} ${item.title} ${item.author}`.toLowerCase().includes(query.toLowerCase()))
-    .sort((left, right) => order === "recent"
+    .sort((left, right) => activeTab === "history" ? Date.parse((right as ReviewedItem).reviewedAt) - Date.parse((left as ReviewedItem).reviewedAt) : order === "recent"
       ? Date.parse(right.updated_at) - Date.parse(left.updated_at)
       : Date.parse(left.created_at) - Date.parse(right.created_at));
 
@@ -207,7 +227,7 @@ function App() {
             <h1>{isGitLab ? "Merge request inbox" : "Pull request inbox"}</h1>
             <p className="subheading">A clear view of what needs your attention.</p>
           </div>
-          <button className="refresh-button" type="button" onClick={() => void loadInbox(activeProvider, true, csrfToken)} disabled={!session || loading}>
+          <button className="refresh-button" type="button" onClick={() => activeTab === "history" ? void loadHistory(activeProvider, true, csrfToken) : void loadInbox(activeProvider, true, csrfToken)} disabled={!session || loading}>
             <span aria-hidden="true" className={refreshing ? "refresh-icon spinning" : "refresh-icon"}>↻</span>
             {refreshing ? "Refreshing" : "Refresh"}
           </button>
@@ -230,7 +250,7 @@ function App() {
 
         {error && (
           <section className="notice error-notice" role="alert">
-            <strong>Inbox unavailable</strong>
+            <strong>{activeTab === "history" ? "Review history unavailable" : "Inbox unavailable"}</strong>
             <p>{error}</p>
             {error.includes("gh auth login") && <code>gh auth login</code>}
             {isGitLab && error.includes("auth_required") && <code>glab auth login --hostname {provider?.host}</code>}
@@ -240,30 +260,34 @@ function App() {
         {loading && !inbox && !error && (
           <section className="loading-panel" role="status" aria-live="polite">
             <div className="loading-bar" aria-hidden="true"><i /></div>
-            <strong>Loading your {nounPlural}…</strong>
-            <p>Searching {hostName} for {nounPlural} that need your review and the ones you authored. This can take a few seconds.</p>
+            <strong>{activeTab === "history" ? "Checking reviewed items…" : `Loading your ${nounPlural}…`}</strong>
+            <p>{activeTab === "history" ? "Reading confirmed app reviews and checking their current heads. This can take a few seconds." : `Searching ${hostName} for ${nounPlural} that need your review and the ones you authored. This can take a few seconds.`}</p>
           </section>
         )}
 
-        {inbox && (
-          <>
-            <div className="freshness">
-              <span><i className="fresh-dot" /> Last updated {new Date(inbox.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-              <span className="coverage">{isGitLab ? inbox.teamCoverage.replace("team-request", "group-request") : inbox.teamCoverage}</span>
-            </div>
+        {provider && (
             <nav className="tabs" aria-label="Queues">
               <button className={activeTab === "review" ? "tab active" : "tab"} onClick={() => setActiveTab("review")}>
-                To review <span className="count">{inbox.toReview.totalCount}</span>
+                To review <span className="count">{inbox?.toReview.totalCount ?? "–"}</span>
               </button>
               <button className={activeTab === "mine" ? "tab active" : "tab"} onClick={() => setActiveTab("mine")}>
-                {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox.myPRs.totalCount}</span>
+                {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox?.myPRs.totalCount ?? "–"}</span>
               </button>
+              <button className={activeTab === "history" ? "tab active" : "tab"} onClick={() => setActiveTab("history")}>Previously reviewed <span className="count">{history?.totalCount ?? "–"}</span></button>
             </nav>
+        )}
+        {(inbox || activeTab === "history") && (
+          <>
+            <div className="freshness">
+              <span><i className="fresh-dot" /> {activeTab === "history" ? history ? `Last loaded ${new Date(history.fetchedAt).toLocaleTimeString()}` : "History not loaded yet" : `Last updated ${new Date(inbox!.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}</span>
+              <span className="coverage">{activeTab === "history" ? "Confirmed reviews tracked locally by this app" : isGitLab ? inbox?.teamCoverage.replace("team-request", "group-request") : inbox?.teamCoverage}</span>
+            </div>
+
 
             <section className="queue-section">
               <div className="queue-heading">
                 <div>
-                  <h2>{activeTab === "review" ? "Waiting for your review" : "Authored by you"}</h2>
+                  <h2>{activeTab === "history" ? "Previously reviewed" : activeTab === "review" ? "Waiting for your review" : "Authored by you"}</h2>
                   <p>{isGitLab ? queue?.ordering.replace("PR", "merge request") : queue?.ordering}</p>
                 </div>
                 <div className="queue-controls">
@@ -283,16 +307,17 @@ function App() {
                       <option key={name} value={name}>{activeOrg ? name.slice(activeOrg.length + 1) : name} ({count})</option>
                     ))}
                   </select>
-                  <label className="visually-hidden" htmlFor="sort-order">Sort {nounPlural}</label>
+                  {activeTab !== "history" && <><label className="visually-hidden" htmlFor="sort-order">Sort {nounPlural}</label>
                   <select id="sort-order" value={order} onChange={(event) => setOrder(event.target.value as "oldest" | "recent")}>
                     <option value="oldest">Oldest first</option>
                     <option value="recent">Recently updated</option>
-                  </select>
+                  </select></>}
                   <label className="visually-hidden" htmlFor="filter">Filter {nounPlural}</label>
                   <input id="filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter inbox" />
                 </div>
               </div>
 
+              {activeTab === "history" && <div className="notice history-coverage" role="status"><p>{history?.coverage ?? "Review history has not been loaded yet."}</p>{history?.incomplete && <p>Some saved records could not be loaded or the 200-item display cap was reached. This list is incomplete.</p>}{history?.items.some((item) => item.headStatus === "unknown") && <p>Some heads could not be checked. Their last-known information may be stale; refresh to retry.</p>}{error && history && <p>The list below is from the last successful load and may be stale.</p>}</div>}
               {queue?.truncated && (
                 <div className="notice truncation-notice" role="status">
                   <strong>Not all {nounPlural} are shown.</strong>{" "}
@@ -307,12 +332,12 @@ function App() {
               {filtered.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon" aria-hidden="true">{hasFilters ? "⌕" : "✓"}</div>
-                  <h3>{hasFilters ? `No matching ${nounPlural}` : "You're all caught up"}</h3>
-                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : `There are no open ${nounPlural} in this queue right now.`}</p>
+                  <h3>{hasFilters ? `No matching ${nounPlural}` : activeTab === "history" ? error ? "Review history unavailable" : loading ? "Checking review history…" : history?.incomplete ? "Some review history is unavailable" : "No tracked reviews yet" : "You're all caught up"}</h3>
+                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : activeTab === "history" ? "Confirmed reviews submitted through this version of the app will appear here, even after leaving To review." : `There are no open ${nounPlural} in this queue right now.`}</p>
                 </div>
               ) : (
                 <ul className="pr-list">
-                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} onSelect={() => setSelectedPR(item)} />)}
+                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} history={activeTab === "history" ? item as ReviewedItem : undefined} stale={activeTab === "history" && !!error} onSelect={() => setSelectedPR(item)} />)}
                 </ul>
               )}
             </section>
@@ -320,7 +345,7 @@ function App() {
         )}
       </main>
       {selectedPR && provider && (
-        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} csrfToken={csrfToken} readOnly={session?.readOnly ?? true} onReviewSubmitted={() => void loadInbox(provider.id, true, csrfToken)} onClose={() => setSelectedPR(null)} />
+        <DetailPanel key={`${provider.id}:${selectedPR.id}`} item={selectedPR} provider={provider} csrfToken={csrfToken} readOnly={session?.readOnly ?? true} onReviewSubmitted={() => { void loadInbox(provider.id, true, csrfToken); if (histories[provider.id] || activeTab === "history") void loadHistory(provider.id, true, csrfToken); }} onClose={() => setSelectedPR(null)} />
       )}
       <footer className="footer">Local to this device · No PR code is executed</footer>
     </div>
@@ -426,7 +451,8 @@ const reasonHelp: Record<string, string> = {
   "Authored by you": "You opened this pull request.",
 };
 
-function PRCard({ item, noun, hostName, onSelect }: { item: PullRequest; noun: string; hostName: string; onSelect: () => void }) {
+function PRCard({ item, noun, hostName, history, stale, onSelect }: { item: PullRequest; noun: string; hostName: string; history?: ReviewedItem; stale?: boolean; onSelect: () => void }) {
+  const ci = stale ? "unknown" : item.ci ?? "unknown";
   const draft = item.draft === true ? "Draft" : item.draft === false ? "Ready for review" : "Draft status unavailable";
   return (
     <li className="pr-card">
@@ -440,16 +466,18 @@ function PRCard({ item, noun, hostName, onSelect }: { item: PullRequest; noun: s
         </div>
         <p className="pr-meta">Opened by <strong>{item.author}</strong> · {new Date(item.created_at).toLocaleDateString()}</p>
       </div>
+
       <div className="pr-details">
         <span className={item.draft === true ? "draft-label" : "state-label"}>{draft}</span>
-        <span className={`ci-label ci-${item.ci ?? "unknown"}`} title={ciLabels[item.ci ?? "unknown"].help}>
-          {ciLabels[item.ci ?? "unknown"].text}
+        <span className={`ci-label ci-${ci}`} title={ciLabels[ci].help}>
+          {ciLabels[ci].text}
         </span>
         {item.reasons.map((reason) => (
           <span className="reason-label" key={reason} title={reasonHelp[reason]}>{reason}</span>
         ))}
       </div>
       <a className="open-link" href={item.html_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.repo} ${noun} ${item.number} on ${hostName}`}>↗</a>
+      {history && <div className="history-details"><span className={`history-head history-${stale ? "unknown" : history.headStatus}`}>{stale || history.headStatus === "unknown" ? "Head check unavailable" : history.headStatus === "changed" ? "Head changed since review" : "Head matches reviewed commit"}</span><p>Last confirmed review: {history.reviewAction.replace(/_/g, " ")} · {new Date(history.reviewedAt).toLocaleString()} · <code>{history.reviewedSHA.slice(0, 12)}</code> · <a href={history.reviewURL} target="_blank" rel="noreferrer">View review ↗</a></p><p>{history.checkedAt ? `Last successful check: ${new Date(history.checkedAt).toLocaleString()}` : "No successful head check yet"}{history.state ? ` · ${history.headStatus === "unknown" || stale ? "Last-known state" : "State"}: ${history.state}` : ""}</p></div>}
     </li>
   );
 }

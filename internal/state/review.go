@@ -14,6 +14,10 @@ import (
 )
 
 type ReviewOperation struct {
+	Owner        string                `json:"owner,omitempty"`
+	Target       *provider.PullRequest `json:"target,omitempty"`
+	ProjectID    int64                 `json:"projectID,omitempty"`
+	ConfirmedAt  time.Time             `json:"confirmedAt,omitempty"`
 	ID           string                `json:"operationID"`
 	Status       string                `json:"status"`
 	HeadSHA      string                `json:"headSHA"`
@@ -73,6 +77,11 @@ func (t *ReviewTransaction) Operation() (*ReviewOperation, error) {
 	return t.store.ReviewOperation(t.key)
 }
 func (t *ReviewTransaction) Record(op ReviewOperation) error {
+	if op.Status == "confirmed" {
+		if err := t.recordHistory(op); err != nil {
+			return err
+		}
+	}
 	data, err := json.Marshal(op)
 	if err != nil {
 		return err

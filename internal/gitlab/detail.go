@@ -18,6 +18,21 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 	if !ok || projectID <= 0 || pr.Number <= 0 {
 		return provider.Detail{}, fmt.Errorf("unknown discovered merge request")
 	}
+	return c.detailForProject(ctx, pr, projectID)
+}
+func (p *Provider) HistoricalDetail(ctx context.Context, pr provider.PullRequest, projectID int64) (provider.Detail, error) {
+	if projectID <= 0 || pr.ID <= 0 || pr.Number <= 0 {
+		return provider.Detail{}, fmt.Errorf("invalid stored GitLab project")
+	}
+	detail, err := p.client.detailForProject(ctx, pr, projectID)
+	if err == nil {
+		p.client.mu.Lock()
+		p.client.projects[pr.ID] = projectID
+		p.client.mu.Unlock()
+	}
+	return detail, err
+}
+func (c *Client) detailForProject(ctx context.Context, pr provider.PullRequest, projectID int64) (provider.Detail, error) {
 	var response struct {
 		mergeRequest
 		Description  string `json:"description"`
@@ -53,7 +68,7 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 			pr.CI = pipelineState(response.HeadPipeline.Status)
 		}
 	}
-	source := provider.DiffSource{ChangedFiles: -1, PipelineKnown: response.HeadPipeline == nil}
+	source := provider.DiffSource{ProjectID: projectID, ChangedFiles: -1, PipelineKnown: response.HeadPipeline == nil}
 	if pipeline := response.HeadPipeline; pipeline != nil && pipeline.SHA == response.SHA && pipeline.ID > 0 {
 		source.PipelineID, source.PipelineProjectID, source.PipelineKnown = pipeline.ID, pipeline.ProjectID, true
 		if source.PipelineProjectID <= 0 {

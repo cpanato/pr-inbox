@@ -24,7 +24,15 @@ func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error)
 	if !ok {
 		return provider.Detail{}, ErrDetailUnavailable
 	}
-	detail, err := p.Detail(ctx, found)
+	var detail provider.Detail
+	s.mu.Lock()
+	historyProject := s.historyProjects[id]
+	s.mu.Unlock()
+	if historical, ok := s.provider.(provider.HistoryProvider); ok && historyProject > 0 {
+		detail, err = historical.HistoricalDetail(ctx, found, historyProject)
+	} else {
+		detail, err = p.Detail(ctx, found)
+	}
 	if err != nil {
 		return provider.Detail{}, err
 	}
@@ -94,6 +102,13 @@ func (s *Service) discovered(id int64) (provider.PullRequest, error) {
 				if item.ID == id {
 					return item.PullRequest, nil
 				}
+			}
+		}
+	}
+	if s.reviewed != nil {
+		for _, item := range s.reviewed.Items {
+			if item.ID == id {
+				return item.PullRequest, nil
 			}
 		}
 	}

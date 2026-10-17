@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpanato/pr-inbox/internal/inbox"
 	"github.com/cpanato/pr-inbox/internal/provider"
@@ -112,6 +114,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"host":               primary.Host,
 			"providers":          providers,
 		})
+	case "/api/history", "/api/history/refresh":
+		mutation := r.URL.Path == "/api/history/refresh"
+		if !h.authorize(w, r, mutation) {
+			return
+		}
+		if (!mutation && r.Method != http.MethodGet) || (mutation && r.Method != http.MethodPost) {
+			methodNotAllowed(w)
+			return
+		}
+		service := h.serviceFor(w, r)
+		if service == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		defer cancel()
+		result, err := service.Reviewed(ctx, mutation)
+		if err != nil {
+			h.writeError(w, http.StatusInternalServerError, "history_unavailable", "Could not read local review history. Previously loaded results may be stale.")
+			return
+		}
+		h.respond(w, http.StatusOK, result)
 	case "/api/inbox":
 		if !h.authorize(w, r, false) {
 			return
