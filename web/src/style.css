@@ -249,3 +249,8 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .snooze-title { background: none; border: 0; padding: 0; text-align: left; color: var(--blue); cursor: pointer; font: inherit; }
 .snooze-overdue { background: #fff4d7; border: 1px solid #f0d59c; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
 .snooze-overdue h2 { margin: 0; font-size: 16px; }
+
+.preferences-status { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0; font-size: 12px; color: var(--muted); }
+.preferences-status span { overflow-wrap: anywhere; }
+.preferences-status button { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.preferences-status button:disabled { opacity: 0.5; cursor: default; }

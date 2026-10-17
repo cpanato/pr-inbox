@@ -6,6 +6,7 @@ import { DiffWorkspace } from "./DiffWorkspace";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { ChecksPanel } from "./ChecksPanel";
 import { ReviewDraft } from "./ReviewDraft";
+import { usePreferences, PreferencesStatus } from "./Preferences";
 import { useSnoozes, SnoozePanel, SnoozeControl, type SnoozeState } from "./Snooze";
 
 type PullRequest = {
@@ -92,11 +93,9 @@ function App() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [activeProvider, setActiveProvider] = useState("");
   const snoozes = useSnoozes(activeProvider, csrfToken);
-  const [activeTab, setActiveTab] = useState<"review" | "mine" | "history">("review");
-  const [query, setQuery] = useState("");
-  const [org, setOrg] = useState("");
-  const [repo, setRepo] = useState("");
-  const [order, setOrder] = useState<"oldest" | "recent">("oldest");
+  const settings = usePreferences(activeProvider, csrfToken, session?.readOnly ?? true);
+  const { tab: activeTab, query, org, repo, order } = settings.values;
+  const setActiveTab = (tab: "review" | "mine" | "history") => settings.change({ tab });
   const [loadingIds, setLoadingIds] = useState<string[]>([]);
   const [selectedPR, setSelectedPR] = useState<PullRequest | null>(null);
   const [startupError, setStartupError] = useState("");
@@ -172,21 +171,18 @@ function App() {
   const selectProvider = (id: string) => {
     setSelectedPR(null);
     setActiveProvider(id);
-    setOrg("");
-    setRepo("");
-    setQuery("");
     if (!inboxes[id] && !loadingIds.includes(id)) void loadInbox(id, false, csrfToken);
   };
 
   const queue = activeTab === "history" ? history ? { ...history, truncated: false, ordering: "Most recently confirmed review first" } : undefined : activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
   const queueItems = (queue?.items ?? []).filter((item) => !snoozes.hidden.has(item.id));
   const orgOptions = countBy(queueItems, (item) => orgOf(item.repo));
-  const activeOrg = orgOptions.some(([name]) => name === org) ? org : "";
+  const activeOrg = org;
   const repoOptions = countBy(
     queueItems.filter((item) => !activeOrg || orgOf(item.repo) === activeOrg),
     (item) => item.repo,
   );
-  const activeRepo = repoOptions.some(([name]) => name === repo) ? repo : "";
+  const activeRepo = repo;
   const hasFilters = query !== "" || activeOrg !== "" || activeRepo !== "";
   const filtered = queueItems
     .filter((item) => !activeOrg || orgOf(item.repo) === activeOrg)
@@ -269,15 +265,16 @@ function App() {
 
         {provider && (
             <nav className="tabs" aria-label="Queues">
-              <button className={activeTab === "review" ? "tab active" : "tab"} onClick={() => setActiveTab("review")}>
+              <button className={activeTab === "review" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("review")}>
                 To review <span className="count">{inbox?.toReview.totalCount ?? "–"}</span>
               </button>
-              <button className={activeTab === "mine" ? "tab active" : "tab"} onClick={() => setActiveTab("mine")}>
+              <button className={activeTab === "mine" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("mine")}>
                 {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox?.myPRs.totalCount ?? "–"}</span>
               </button>
-              <button className={activeTab === "history" ? "tab active" : "tab"} onClick={() => setActiveTab("history")}>Previously reviewed <span className="count">{history?.totalCount ?? "–"}</span></button>
+              <button className={activeTab === "history" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("history")}>Previously reviewed <span className="count">{history?.totalCount ?? "–"}</span></button>
             </nav>
         )}
+        {provider && <PreferencesStatus settings={settings} readOnly={session?.readOnly ?? true} />}
         {provider && <SnoozePanel state={snoozes} readOnly={session?.readOnly ?? true} onSelect={(target) => setSelectedPR({ ...target, ci: "unknown", reasons: [] })} />}
         {(inbox || activeTab === "history") && (
           <>
@@ -298,25 +295,28 @@ function App() {
                   <select
                     id="org-filter"
                     value={activeOrg}
-                    onChange={(event) => { setOrg(event.target.value); setRepo(""); }}
+                    disabled={settings.loading}
+                    onChange={(event) => settings.change({ org: event.target.value, repo: "" })}
                   >
                     <option value="">All organizations</option>
+                    {org && !orgOptions.some(([name]) => name === org) && <option value={org}>{org} (not in loaded items)</option>}
                     {orgOptions.map(([name, count]) => <option key={name} value={name}>{name} ({count})</option>)}
                   </select>
                   <label className="visually-hidden" htmlFor="repo-filter">Filter by repository</label>
-                  <select id="repo-filter" value={activeRepo} onChange={(event) => setRepo(event.target.value)}>
+                  <select id="repo-filter" value={activeRepo} disabled={settings.loading} onChange={(event) => settings.change({ repo: event.target.value })}>
                     <option value="">All repositories</option>
+                    {repo && !repoOptions.some(([name]) => name === repo) && <option value={repo}>{repo} (not in loaded items)</option>}
                     {repoOptions.map(([name, count]) => (
                       <option key={name} value={name}>{activeOrg ? name.slice(activeOrg.length + 1) : name} ({count})</option>
                     ))}
                   </select>
                   {activeTab !== "history" && <><label className="visually-hidden" htmlFor="sort-order">Sort {nounPlural}</label>
-                  <select id="sort-order" value={order} onChange={(event) => setOrder(event.target.value as "oldest" | "recent")}>
+                  <select id="sort-order" value={order} disabled={settings.loading} onChange={(event) => settings.change({ order: event.target.value as "oldest" | "recent" })}>
                     <option value="oldest">Oldest first</option>
                     <option value="recent">Recently updated</option>
                   </select></>}
                   <label className="visually-hidden" htmlFor="filter">Filter {nounPlural}</label>
-                  <input id="filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter inbox" />
+                  <input id="filter" value={query} disabled={settings.loading} maxLength={1024} onChange={(event) => settings.change({ query: event.target.value })} placeholder="Filter inbox" />
                 </div>
               </div>
 
