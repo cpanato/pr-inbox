@@ -269,9 +269,41 @@ preserved. Reads do not create files. Read-only mode restores saved preferences
 and allows temporary filter changes, without saving them. No provider write is
 performed. Search text and filter values are stored locally, without credentials.
 
+## Direct and team review requests
+
+GitHub discovery searches direct review requests (`user-review-requested:@me`)
+and requests to teams the authenticated user belongs to
+(`team-review-requested-user:USERNAME`) separately. Rows show **Requested from you**,
+**Requested from your teams**, or both. A PR appears once even when both sources
+or multiple organization scopes match it. Team names and membership lists are not
+enumerated. Search visibility and freshness depend on token access and GitHub's
+index; this is not a guarantee that every actionable review is discoverable.
+See [GitHub search qualifiers](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-by-pull-request-review-status-and-reviewer).
+
+`--org` applies to both sources. Direct requests are loaded first, with a shared
+200-unique-item cap per queue. Each team search reads at most 200 matches to allow
+for overlap with direct requests. A full direct queue may leave team searches
+unchecked. Cache and **Refresh** behavior are unchanged. A failed team query keeps
+other loaded requests visible and adds an incomplete-coverage notice; failures
+loading direct or authored requests still fail the inbox load. The provider's
+`incomplete_results` flag is surfaced even for an empty response. A partial or
+failed search is never presented as "all caught up".
+
+Totals marked `~` are estimates: unseen overlaps, incomplete responses or skipped
+sources prevent computing an exact union. A loaded match count is not proof that
+all search results were read. Queue-cap and coverage notices describe these limits.
+The same PR may retain only its observed direct reason if a team source was not
+loaded. Refresh retries the discovery sources.
+
+GitLab discovery continues to use the assigned reviewer's user ID. Group approval
+eligibility is not treated as a review request, and the UI explicitly discloses
+that it is excluded. Group eligibility and assigned reviewers are distinct in the
+[GitLab merge requests API](https://docs.gitlab.com/api/merge_requests/) and
+[approval rules API](https://docs.gitlab.com/api/merge_request_approvals/).
+
 ## Roadmap
 
-Milestone 3 is complete; Milestone 5 is the next delivery priority. Milestone 4 is
+Milestones 3 and 5 are complete within the documented provider coverage. Milestone 4 is
 recorded as backlog only; implementation is not planned. Unchecked items may
 change in scope. Milestone numbers identify the themes, not their delivery order.
 
@@ -292,12 +324,12 @@ change in scope. Milestone numbers identify the themes, not their delivery order
   - [x] Provider-neutral internal model (pull request / merge request)
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
   - [x] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
-- [ ] **Milestone 5 – Personal triage and follow-up (next after Milestone 3):**
+- [x] **Milestone 5 – Personal triage and follow-up:**
   - [x] Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
   - [x] Detect changed heads since the last confirmed review, with explicit freshness and coverage
   - [x] Snooze items until a chosen date, persist deadlines across restarts and show overdue reminders
   - [x] Persist filters, ordering and preferences per account and provider
-  - Expand team review-request coverage, with explicit completeness limits
+  - [x] Expand GitHub team review-request coverage with source reasons and completeness limits; explicitly disclose GitLab group approval exclusions
 - [ ] **Milestone 4 – Inline review (backlog only; no implementation planned):**
   - Comments on diff lines, including renamed files
   - Local inline drafts tied to file, line and inspected commit

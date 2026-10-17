@@ -20,8 +20,9 @@ const (
 type Role string
 
 const (
-	ReviewRequested Role = "review-requested"
-	Authored        Role = "authored"
+	ReviewRequested     Role = "review-requested"
+	TeamReviewRequested Role = "team-review-requested"
+	Authored            Role = "authored"
 )
 
 type Viewer struct {
@@ -46,6 +47,7 @@ type PullRequest struct {
 type SearchResult struct {
 	Items      []PullRequest
 	TotalCount int
+	Incomplete bool
 }
 
 // Query selects the open change requests for the viewer in a given role,
@@ -71,4 +73,10 @@ type Provider interface {
 	// CIStatuses returns the CI state keyed by pull request ID. Missing keys
 	// are treated as CIUnknown.
 	CIStatuses(ctx context.Context, prs []PullRequest) (map[int64]string, error)
+}
+
+// ReviewDiscoveryProvider describes which review-request sources are queried.
+type ReviewDiscoveryProvider interface {
+	TeamRequestsSupported() bool
+	ReviewCoverage() string
 }

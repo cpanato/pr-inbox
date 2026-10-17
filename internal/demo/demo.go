@@ -80,12 +80,18 @@ func (c *Client) Info() provider.Info {
 
 func (c *Client) Search(_ context.Context, query provider.Query, limit int) (provider.SearchResult, error) {
 	source := c.mine
-	if query.Role == provider.ReviewRequested {
+	if query.Role == provider.ReviewRequested || query.Role == provider.TeamReviewRequested {
 		source = c.review
 	}
 	org := strings.ToLower(query.Org)
 	items := make([]provider.PullRequest, 0, len(source))
 	for _, pr := range source {
+		if c.kind == "github" && query.Role == provider.ReviewRequested && pr.ID == 88 {
+			continue
+		}
+		if query.Role == provider.TeamReviewRequested && (c.kind != "github" || (pr.ID != 142 && pr.ID != 88)) {
+			continue
+		}
 		if org == "" || strings.HasPrefix(strings.ToLower(pr.Repo), org+"/") {
 			items = append(items, pr)
 		}
@@ -113,4 +119,12 @@ func (c *Client) Detail(_ context.Context, pr provider.PullRequest) (provider.De
 		SourceBranch: "feature/" + strconv.Itoa(pr.Number), TargetBranch: "main",
 		HeadSHA: "a1b2c3d4e5f6789012345678901234567890abcdef", State: "open",
 	}, nil
+}
+
+func (c *Client) TeamRequestsSupported() bool { return c.kind == "github" }
+func (c *Client) ReviewCoverage() string {
+	if c.kind == "github" {
+		return "Demo direct and team review requests. No provider API calls are made."
+	}
+	return "Assigned reviewers only. GitLab group approval eligibility is not included."
 }

@@ -42,10 +42,13 @@ type PullRequest struct {
 }
 
 type Queue struct {
-	Items      []PullRequest `json:"items"`
-	TotalCount int           `json:"totalCount"`
-	Truncated  bool          `json:"truncated"`
-	Ordering   string        `json:"ordering"`
+	Items           []PullRequest `json:"items"`
+	TotalCount      int           `json:"totalCount"`
+	Truncated       bool          `json:"truncated"`
+	Ordering        string        `json:"ordering"`
+	Incomplete      bool          `json:"incomplete"`
+	TotalCountExact bool          `json:"totalCountExact"`
+	Notices         []string      `json:"notices"`
 }
 
 type Snapshot struct {
@@ -78,12 +81,16 @@ func (s *Service) Snapshot(ctx context.Context, force bool) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("load authored pull requests: %w", err)
 	}
 	s.attachCI(ctx, &reviewQueue, &myQueue)
+	coverage := "Direct review requests only; team coverage is not available for this provider."
+	if p, ok := s.provider.(provider.ReviewDiscoveryProvider); ok {
+		coverage = p.ReviewCoverage()
+	}
 	result := Snapshot{
 		FetchedAt: time.Now().UTC(),
 		Viewer:    s.provider.Info().Viewer.Login,
 		ToReview:  reviewQueue,
 		MyPRs:     myQueue,
-		TeamNote:  "Direct requests only; team-request coverage is not included.",
+		TeamNote:  coverage,
 	}
 	s.cached = &result
 	s.cachedAt = time.Now()
@@ -120,12 +127,18 @@ func (s *Service) attachCI(ctx context.Context, queues ...*Queue) {
 }
 
 func (s *Service) discover(ctx context.Context, role provider.Role) (Queue, error) {
-	queries := make([]provider.Query, 0, max(len(s.orgs), 1))
-	if len(s.orgs) == 0 {
-		queries = append(queries, provider.Query{Role: role})
+	roles := []provider.Role{role}
+	if p, ok := s.provider.(provider.ReviewDiscoveryProvider); ok && role == provider.ReviewRequested && p.TeamRequestsSupported() {
+		roles = append(roles, provider.TeamReviewRequested)
 	}
-	for _, org := range s.orgs {
-		queries = append(queries, provider.Query{Role: role, Org: org})
+	queries := []provider.Query{}
+	for _, source := range roles {
+		if len(s.orgs) == 0 {
+			queries = append(queries, provider.Query{Role: source})
+		}
+		for _, org := range s.orgs {
+			queries = append(queries, provider.Query{Role: source, Org: org})
+		}
 	}
 
 	byID := make(map[int64]PullRequest)
@@ -133,29 +146,64 @@ func (s *Service) discover(ctx context.Context, role provider.Role) (Queue, erro
 	duplicateCount := 0
 	remaining := queueLimit
 	truncated := false
+	incomplete := false
+	exact := true
+	notices := []string{}
 	for queryIndex, query := range queries {
 		if remaining <= 0 {
 			truncated = true
+			incomplete = true
+			exact = false
+			notices = appendUnique(notices, "The 200-item queue cap was reached before all discovery sources were checked.")
 			break
 		}
-		result, err := s.provider.Search(ctx, query, remaining)
+		limit := remaining
+		// Team results often overlap direct requests. Fetch a bounded source page
+		// budget so duplicates do not consume the remaining unique-item capacity.
+		if query.Role == provider.TeamReviewRequested {
+			limit = queueLimit
+		}
+		result, err := s.provider.Search(ctx, query, limit)
 		if err != nil {
-			return Queue{}, err
+			if query.Role != provider.TeamReviewRequested {
+				return Queue{}, err
+			}
+			incomplete = true
+			exact = false
+			scope := "all organizations"
+			if query.Org != "" {
+				scope = query.Org
+			}
+			notices = appendUnique(notices, "Team review requests could not be loaded for "+scope+". Other loaded requests are still shown; refresh to retry.")
+			continue
+		}
+		if result.Incomplete {
+			incomplete = true
+			exact = false
+			notices = appendUnique(notices, "The provider returned incomplete search results. Some requests may be missing; refresh to retry.")
 		}
 		totalCount += result.TotalCount
 		if result.TotalCount > len(result.Items) {
 			truncated = true
+			if len(queries) > 1 {
+				exact = false
+			}
 		}
 		for _, pr := range result.Items {
 			item, exists := byID[pr.ID]
 			if !exists {
-				item = PullRequest{PullRequest: pr, Reasons: []string{filterReason(role)}}
+				if remaining == 0 {
+					truncated = true
+					exact = false
+					continue
+				}
+				item = PullRequest{PullRequest: pr, Reasons: []string{filterReason(query.Role)}}
 				byID[pr.ID] = item
 				remaining--
 				continue
 			}
 			duplicateCount++
-			item.Reasons = appendUnique(item.Reasons, filterReason(role))
+			item.Reasons = appendUnique(item.Reasons, filterReason(query.Role))
 			byID[pr.ID] = item
 		}
 		if remaining == 0 && queryIndex < len(queries)-1 {
@@ -179,10 +227,14 @@ func (s *Service) discover(ctx context.Context, role provider.Role) (Queue, erro
 		TotalCount: totalCount,
 		Truncated:  truncated,
 		Ordering:   "oldest first by PR creation time",
+		Incomplete: incomplete, TotalCountExact: exact, Notices: notices,
 	}, nil
 }
 
 func filterReason(role provider.Role) string {
+	if role == provider.TeamReviewRequested {
+		return "Requested from your teams"
+	}
 	if role == provider.ReviewRequested {
 		return "Requested from you"
 	}
@@ -199,7 +251,15 @@ func appendUnique(items []string, value string) []string {
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
-	snapshot.ToReview.Items = append([]PullRequest(nil), snapshot.ToReview.Items...)
-	snapshot.MyPRs.Items = append([]PullRequest(nil), snapshot.MyPRs.Items...)
+	snapshot.ToReview = cloneQueue(snapshot.ToReview)
+	snapshot.MyPRs = cloneQueue(snapshot.MyPRs)
 	return snapshot
+}
+func cloneQueue(queue Queue) Queue {
+	queue.Items = append([]PullRequest{}, queue.Items...)
+	queue.Notices = append([]string{}, queue.Notices...)
+	for i := range queue.Items {
+		queue.Items[i].Reasons = append([]string{}, queue.Items[i].Reasons...)
+	}
+	return queue
 }

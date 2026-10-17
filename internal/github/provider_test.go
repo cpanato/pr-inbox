@@ -12,7 +12,7 @@ func TestSearchQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := baseQuery + " org:acme review-requested:me"; got != want {
+	if want := baseQuery + " org:acme user-review-requested:@me"; got != want {
 		t.Fatalf("query = %q, want %q", got, want)
 	}
 	got, err = searchQuery(provider.Query{Role: provider.Authored}, "me")
@@ -30,5 +30,16 @@ func TestSearchQueryRejectsInvalidInput(t *testing.T) {
 	}
 	if _, err := searchQuery(provider.Query{Role: "other"}, "me"); err == nil {
 		t.Fatal("unknown role must be rejected")
+	}
+}
+
+func TestTeamSearchQueryKeepsOrganizationAndUsesAuthenticatedDirectRequests(t *testing.T) {
+	got, err := searchQuery(provider.Query{Role: provider.TeamReviewRequested, Org: "acme"}, "reviewer")
+	if err != nil || got != baseQuery+" org:acme team-review-requested-user:reviewer" {
+		t.Fatalf("team query=%q %v", got, err)
+	}
+	direct, err := searchQuery(provider.Query{Role: provider.ReviewRequested}, "reviewer")
+	if err != nil || direct != baseQuery+" user-review-requested:@me" {
+		t.Fatalf("direct query=%q %v", direct, err)
 	}
 }
