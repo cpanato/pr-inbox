@@ -56,10 +56,17 @@ func searchQuery(query provider.Query, login string) (string, error) {
 	}
 	switch query.Role {
 	case provider.ReviewRequested:
-		return q + " review-requested:" + login, nil
+		return q + " user-review-requested:@me", nil
+	case provider.TeamReviewRequested:
+		return q + " team-review-requested-user:" + login, nil
 	case provider.Authored:
 		return q + " author:" + login, nil
 	default:
 		return "", fmt.Errorf("unsupported role %q", query.Role)
 	}
+}
+
+func (p *Provider) TeamRequestsSupported() bool { return true }
+func (p *Provider) ReviewCoverage() string {
+	return "Direct and team requests via GitHub search. Coverage depends on token access and search indexing."
 }

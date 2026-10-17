@@ -36,7 +36,8 @@ type viewerResponse struct {
 }
 
 type searchResponse struct {
-	TotalCount int `json:"total_count"`
+	TotalCount int  `json:"total_count"`
+	Incomplete bool `json:"incomplete_results"`
 	Items      []struct {
 		ID        int64     `json:"id"`
 		Number    int       `json:"number"`
@@ -76,7 +77,7 @@ func (c *Client) Viewer(ctx context.Context) (provider.Viewer, error) {
 
 func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int) (provider.SearchResult, error) {
 	result := provider.SearchResult{}
-	for page := 1; len(result.Items) < limit; page++ {
+	for page := 1; len(result.Items) < limit && page <= (limit+pageSize-1)/pageSize; page++ {
 		values := url.Values{
 			"q":        []string{query},
 			"per_page": []string{strconv.Itoa(pageSize)},
@@ -89,11 +90,13 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string, limit int
 			return provider.SearchResult{}, err
 		}
 		result.TotalCount = response.TotalCount
+		result.Incomplete = result.Incomplete || response.Incomplete
 		if page == 1 && response.TotalCount == 0 {
 			return result, nil
 		}
 		for _, item := range response.Items {
 			if item.PullRequest == nil {
+				result.Incomplete = true
 				continue
 			}
 			result.Items = append(result.Items, provider.PullRequest{

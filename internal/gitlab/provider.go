@@ -103,3 +103,8 @@ func Token(parent context.Context, host string) (string, error) {
 	}
 	return "", fmt.Errorf("no GitLab token for %s; set %s to a personal access token with the read_api scope, or run `glab auth login --hostname %s`", host, name, host)
 }
+
+func (p *Provider) TeamRequestsSupported() bool { return false }
+func (p *Provider) ReviewCoverage() string {
+	return "Assigned reviewers only. GitLab group approval eligibility is not included."
+}

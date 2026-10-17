@@ -100,3 +100,36 @@ func TestSearchRequestEncodesQuery(t *testing.T) {
 		t.Fatalf("query = %q", got)
 	}
 }
+
+func TestSearchPropagatesIncompleteResultsEvenWhenEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"total_count":0,"incomplete_results":true,"items":[]}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	result, err := client.SearchPullRequests(context.Background(), "is:pr", 200)
+	if err != nil || !result.Incomplete || len(result.Items) != 0 {
+		t.Fatalf("result=%+v %v", result, err)
+	}
+}
+func TestSearchBoundsPagesWhenProviderReturnsNonPullRequests(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		items := make([]map[string]any, 100)
+		for i := range items {
+			items[i] = map[string]any{"id": i + 1}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 100000, "items": items})
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	result, err := client.SearchPullRequests(context.Background(), "is:pr", 200)
+	if err != nil || !result.Incomplete || calls != 2 || len(result.Items) != 0 {
+		t.Fatalf("result=%+v calls=%d %v", result, calls, err)
+	}
+}

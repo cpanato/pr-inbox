@@ -37,6 +37,9 @@ type Queue = {
   totalCount: number;
   truncated: boolean;
   ordering: string;
+  incomplete: boolean;
+  totalCountExact: boolean;
+  notices: string[];
 };
 
 type ReviewedItem = PullRequest & { reviewedSHA: string; reviewAction: string; reviewedAt: string; reviewURL: string; headSHA?: string; headStatus: "changed" | "unchanged" | "unknown"; checkedAt?: string; state?: string };
@@ -174,7 +177,7 @@ function App() {
     if (!inboxes[id] && !loadingIds.includes(id)) void loadInbox(id, false, csrfToken);
   };
 
-  const queue = activeTab === "history" ? history ? { ...history, truncated: false, ordering: "Most recently confirmed review first" } : undefined : activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
+  const queue = activeTab === "history" ? history ? { ...history, truncated: false, totalCountExact: !history.incomplete, notices: [], ordering: "Most recently confirmed review first" } : undefined : activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
   const queueItems = (queue?.items ?? []).filter((item) => !snoozes.hidden.has(item.id));
   const orgOptions = countBy(queueItems, (item) => orgOf(item.repo));
   const activeOrg = org;
@@ -266,10 +269,10 @@ function App() {
         {provider && (
             <nav className="tabs" aria-label="Queues">
               <button className={activeTab === "review" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("review")}>
-                To review <span className="count">{inbox?.toReview.totalCount ?? "–"}</span>
+                To review <span className="count">{inbox ? `${inbox.toReview.totalCountExact ? "" : "~"}${inbox.toReview.totalCount}` : "–"}</span>
               </button>
               <button className={activeTab === "mine" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("mine")}>
-                {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox?.myPRs.totalCount ?? "–"}</span>
+                {isGitLab ? "My MRs" : "My PRs"} <span className="count">{inbox ? `${inbox.myPRs.totalCountExact ? "" : "~"}${inbox.myPRs.totalCount}` : "–"}</span>
               </button>
               <button className={activeTab === "history" ? "tab active" : "tab"} disabled={settings.loading} onClick={() => setActiveTab("history")}>Previously reviewed <span className="count">{history?.totalCount ?? "–"}</span></button>
             </nav>
@@ -280,7 +283,7 @@ function App() {
           <>
             <div className="freshness">
               <span><i className="fresh-dot" /> {activeTab === "history" ? history ? `Last loaded ${new Date(history.fetchedAt).toLocaleTimeString()}` : "History not loaded yet" : `Last updated ${new Date(inbox!.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}</span>
-              <span className="coverage">{activeTab === "history" ? "Confirmed reviews tracked locally by this app" : isGitLab ? inbox?.teamCoverage.replace("team-request", "group-request") : inbox?.teamCoverage}</span>
+              <span className="coverage">{activeTab === "history" ? "Confirmed reviews tracked locally by this app" : inbox?.teamCoverage}</span>
             </div>
 
 
@@ -321,11 +324,16 @@ function App() {
               </div>
 
               {activeTab === "history" && <div className="notice history-coverage" role="status"><p>{history?.coverage ?? "Review history has not been loaded yet."}</p>{history?.incomplete && <p>Some saved records could not be loaded or the 200-item display cap was reached. This list is incomplete.</p>}{history?.items.some((item) => item.headStatus === "unknown") && <p>Some heads could not be checked. Their last-known information may be stale; refresh to retry.</p>}{error && history && <p>The list below is from the last successful load and may be stale.</p>}</div>}
+              {activeTab !== "history" && queue && (queue.incomplete || !queue.totalCountExact) && <div className="notice discovery-notice" role="status">
+                <strong>Discovery coverage is incomplete.</strong>
+                {queue.notices.map((notice) => <p key={notice}>{notice}</p>)}
+                {!queue.totalCountExact && <p>Queue totals marked ~ are estimates from the available search results; overlaps or unavailable sources prevent an exact count.</p>}
+              </div>}
               {queue?.truncated && (
                 <div className="notice truncation-notice" role="status">
                   <strong>Not all {nounPlural} are shown.</strong>{" "}
-                  This queue has {queue.totalCount} matching {nounPlural}, but only the first {queue.items.length} are loaded
-                  (limit of {queue.items.length} per queue). Some {nounPlural}, including possibly older ones, may be missing.
+                  Only {queue.items.length} {nounPlural} are loaded. The app loads at most 200 unique items per queue;
+                  additional matches or discovery sources may be omitted, including possibly older items.
                   {isGitLab
                     ? <>The group and project filters above only filter what is already loaded.</>
                     : <>Restart with <code>--org ORG</code> to narrow discovery to the organizations you care about.
@@ -335,8 +343,8 @@ function App() {
               {filtered.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon" aria-hidden="true">{hasFilters ? "⌕" : "✓"}</div>
-                  <h3>{hasFilters ? `No matching ${nounPlural}` : activeTab === "history" ? error ? "Review history unavailable" : loading ? "Checking review history…" : history?.incomplete ? "Some review history is unavailable" : snoozes.active.length ? "No visible reviewed items" : "No tracked reviews yet" : snoozes.active.length ? "No visible items in this queue" : "You're all caught up"}</h3>
-                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : activeTab === "history" ? "Confirmed reviews submitted through this version of the app will appear here, even after leaving To review." : `There are no visible ${nounPlural} in this queue right now. Check Snoozed for items you deferred.`}</p>
+                  <h3>{hasFilters ? `No matching ${nounPlural}` : activeTab === "history" ? error ? "Review history unavailable" : loading ? "Checking review history…" : history?.incomplete ? "Some review history is unavailable" : snoozes.active.length ? "No visible reviewed items" : "No tracked reviews yet" : snoozes.active.length ? "No visible items in this queue" : queue?.incomplete || queue?.truncated ? "Some requests could not be loaded" : "You're all caught up"}</h3>
+                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : activeTab === "history" ? "Confirmed reviews submitted through this version of the app will appear here, even after leaving To review." : queue?.incomplete || queue?.truncated ? "Coverage is incomplete. Refresh to retry, and check the coverage notices above." : `There are no visible ${nounPlural} in this queue right now. Check Snoozed for items you deferred.`}</p>
                 </div>
               ) : (
                 <ul className="pr-list">
@@ -450,7 +458,8 @@ const ciLabels: Record<CIState, { text: string; help: string }> = {
 };
 
 const reasonHelp: Record<string, string> = {
-  "Requested from you": "You were directly asked to review this pull request.",
+  "Requested from you": "You were directly asked to review this change request.",
+  "Requested from your teams": "GitHub search matched a review request for a team you belong to. Individual teams are not enumerated.",
   "Authored by you": "You opened this pull request.",
 };
 

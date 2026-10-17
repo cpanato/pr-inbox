@@ -137,6 +137,7 @@ func (c *Client) Search(ctx context.Context, viewer provider.Viewer, query provi
 		if total, err := strconv.Atoi(header.Get("X-Total")); err == nil {
 			result.TotalCount = total
 		}
+		added := 0
 		for _, mr := range batch {
 			if len(result.Items) == limit {
 				break
@@ -153,9 +154,15 @@ func (c *Client) Search(ctx context.Context, viewer provider.Viewer, query provi
 				UpdatedAt: mr.UpdatedAt,
 				Draft:     &draft,
 			})
+			added++
 			c.mu.Lock()
 			c.projects[mr.ID] = mr.ProjectID
 			c.mu.Unlock()
+		}
+		// GitLab can omit X-Total. Preserve evidence of unread matches instead
+		// of presenting the loaded count as a complete queue.
+		if result.TotalCount == 0 && (len(batch) > added || (header.Get("X-Next-Page") != "" && (len(result.Items) >= limit || len(batch) < pageSize))) {
+			result.Incomplete = true
 		}
 		if len(batch) < pageSize || header.Get("X-Next-Page") == "" {
 			break

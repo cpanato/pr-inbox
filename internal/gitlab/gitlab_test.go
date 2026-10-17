@@ -193,3 +193,20 @@ func TestTokenEnvNeverSharesTokenAcrossHosts(t *testing.T) {
 		t.Fatal("a self-hosted host must not fall back to GITLAB_TOKEN")
 	}
 }
+
+func TestSearchWithoutTotalReportsUnreadMatches(t *testing.T) {
+	for _, morePages := range []bool{false, true} {
+		t.Run(fmt.Sprint(morePages), func(t *testing.T) {
+			client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if morePages {
+					w.Header().Set("X-Next-Page", "2")
+				}
+				_ = json.NewEncoder(w).Encode([]any{mrJSON(1, 1, 77, "acme"), mrJSON(2, 2, 77, "acme")})
+			}))
+			result, err := client.Search(context.Background(), provider.Viewer{ID: 1}, provider.Query{Role: provider.ReviewRequested}, 1)
+			if err != nil || !result.Incomplete || len(result.Items) != 1 {
+				t.Fatalf("unread matches presented as complete: %+v %v", result, err)
+			}
+		})
+	}
+}
