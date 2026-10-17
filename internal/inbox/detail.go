@@ -27,6 +27,11 @@ func (s *Service) Detail(ctx context.Context, id int64) (provider.Detail, error)
 	var detail provider.Detail
 	s.mu.Lock()
 	historyProject := s.historyProjects[id]
+	for _, item := range s.snoozed {
+		if item.Target.ID == id && historyProject == 0 {
+			historyProject = item.ProjectID
+		}
+	}
 	s.mu.Unlock()
 	if historical, ok := s.provider.(provider.HistoryProvider); ok && historyProject > 0 {
 		detail, err = historical.HistoricalDetail(ctx, found, historyProject)
@@ -110,6 +115,11 @@ func (s *Service) discovered(id int64) (provider.PullRequest, error) {
 			if item.ID == id {
 				return item.PullRequest, nil
 			}
+		}
+	}
+	for _, item := range s.snoozed {
+		if item.Target.ID == id {
+			return item.Target, nil
 		}
 	}
 	return provider.PullRequest{}, ErrNotFound

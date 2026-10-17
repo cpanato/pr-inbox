@@ -20,6 +20,13 @@ func (c *Client) Detail(ctx context.Context, pr provider.PullRequest) (provider.
 	}
 	return c.detailForProject(ctx, pr, projectID)
 }
+
+// HistoryProjectID returns coordinates already resolved by server-side discovery.
+func (p *Provider) HistoryProjectID(id int64) int64 {
+	p.client.mu.Lock()
+	defer p.client.mu.Unlock()
+	return p.client.projects[id]
+}
 func (p *Provider) HistoricalDetail(ctx context.Context, pr provider.PullRequest, projectID int64) (provider.Detail, error) {
 	if projectID <= 0 || pr.ID <= 0 || pr.Number <= 0 {
 		return provider.Detail{}, fmt.Errorf("invalid stored GitLab project")

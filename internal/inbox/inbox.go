@@ -33,6 +33,7 @@ type Service struct {
 	reviewedAt         time.Time
 	reviewedGeneration uint64
 	historyProjects    map[int64]int64
+	snoozed            []state.Snooze
 }
 
 type PullRequest struct {
