@@ -15,9 +15,9 @@ The screenshots use sample data (`--demo`). With more than one provider, each ge
 
 ## Current implementation
 
-Milestone 1 is implemented: authenticated **To review** and **My PRs** queues,
+The app includes authenticated **To review** and **My PRs** queues,
 organization and repository filters, CI status labels, capped discovery, explicit
-direct-request-only coverage, and a local review workspace. Clicking a PR/MR title
+provider coverage, and a local review workspace. Clicking a PR/MR title
 opens a detail panel with its description (plain text), author, branches, head
 commit, and CI summary for that commit. The panel is available for GitHub,
 GitLab, and demo data. A file browser shows unified diffs pinned to the inspected
@@ -303,39 +303,10 @@ that it is excluded. Group eligibility and assigned reviewers are distinct in th
 
 ## Roadmap
 
-Milestones 3 and 5 are complete within the documented provider coverage. Milestone 4 is
-recorded as backlog only; implementation is not planned. Unchecked items may
-change in scope. Milestone numbers identify the themes, not their delivery order.
-
-- [x] **Milestone 1 – Read-only inbox:** authentication, review-requested and authored queues, filters, CI status, coverage labels, links.
-- [x] **Milestone 2 – Review workspace:**
-  - [x] Read-only PR/MR details: plain-text description, author, branches, head commit and CI summary
-  - [x] Read-only discussion timeline with pagination and provider links
-  - [x] Diffs pinned to a commit, with large, binary and truncated diff handling
-  - [x] Detailed check results and provider links
-  - [x] Local file "viewed" markers pinned to the inspected revision
-  - [x] Local review drafts
-- [x] **Milestone 3 – Overall review writes:**
-  - [x] GitHub overall review submission (approve, comment, request changes) after explicit confirmation
-  - [x] GitHub checks for unchanged head, account identity, open PR and pending review
-  - [x] Persistent operation tracking, outcome reconciliation and refresh after submission
-  - [x] GitLab comments, formal approvals and requested-changes state, with explicit provider effects and partial-outcome protection
-- [ ] **GitLab support:**
-  - [x] Provider-neutral internal model (pull request / merge request)
-  - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
-  - [x] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
-- [x] **Milestone 5 – Personal triage and follow-up:**
-  - [x] Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
-  - [x] Detect changed heads since the last confirmed review, with explicit freshness and coverage
-  - [x] Snooze items until a chosen date, persist deadlines across restarts and show overdue reminders
-  - [x] Persist filters, ordering and preferences per account and provider
-  - [x] Expand GitHub team review-request coverage with source reasons and completeness limits; explicitly disclose GitLab group approval exclusions
-- [ ] **Milestone 4 – Inline review (backlog only; no implementation planned):**
-  - Comments on diff lines, including renamed files
-  - Local inline drafts tied to file, line and inspected commit
-  - Confirmed submission of inline comments with an overall review
-  - Thread replies and resolution where supported by the provider
-  - Outdated-comment labels and position validation after head changes
+See [ROADMAP.md](ROADMAP.md) for delivered capabilities and ideas to revisit:
+expanded diagnostics, automatic inbox refresh, and local-state backup/restore.
+Backlog items have no committed order or delivery date. Inline review remains
+deferred, with no implementation currently planned.
 
 ## Requirements
 
