@@ -220,6 +220,31 @@ reviews performed elsewhere are not imported. The latest 200 entries are display
 corrupt records or a capped list are explicitly marked incomplete. This is local
 follow-up history, not a complete provider review history.
 
+## Snooze and reminders
+
+Each item can be snoozed for 1, 4 or 24 hours, or until a custom local date and
+time. Snoozed items are hidden from the loaded queues, including review history;
+queue totals still include them. Expand **Snoozed** to open fresh details, cancel
+or reschedule an item. The list uses saved metadata and remains available if an
+item leaves inbox discovery; it does not assert that the item is still open.
+
+Deadlines are stored as absolute UTC timestamps in `--state-dir`, separated by
+provider, host and account. A four-hour snooze still has two hours remaining after
+two hours with the machine switched off. Once the deadline is reached, the item
+is no longer hidden. If the app was closed, **Snooze ended** appears on the next
+opening. Overdue reminders persist until explicitly dismissed or rescheduled;
+dismissing a reminder does not hide the item again. Notifications are shown inside
+the app; the server does not need to run while the machine is off.
+
+The UI checks deadlines while open and reloads local snoozes every 30 seconds and
+when the window regains focus or becomes visible after sleep. Deadline checks use
+the server clock. Local state is saved atomically under `snooze-v1` with private
+file permissions and a cross-process lock. Only item metadata and deadlines are
+stored; no provider write is performed. Up to 500 active or overdue reminders are
+retained per account, with deadlines at most one year ahead. Corrupt or unreadable
+state produces an explicit error and is not silently replaced. Read-only mode
+permits reading snoozes and showing overdue reminders, but blocks changes.
+
 ## Roadmap
 
 Milestone 3 is complete; Milestone 5 is the next delivery priority. Milestone 4 is
@@ -246,7 +271,7 @@ change in scope. Milestone numbers identify the themes, not their delivery order
 - [ ] **Milestone 5 – Personal triage and follow-up (next after Milestone 3):**
   - [x] Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
   - [x] Detect changed heads since the last confirmed review, with explicit freshness and coverage
-  - Snooze items until a chosen date, then return them to the queue
+  - [x] Snooze items until a chosen date, persist deadlines across restarts and show overdue reminders
   - Persist filters, ordering and preferences per account and provider
   - Expand team review-request coverage, with explicit completeness limits
 - [ ] **Milestone 4 – Inline review (backlog only; no implementation planned):**

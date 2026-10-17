@@ -6,6 +6,7 @@ import { DiffWorkspace } from "./DiffWorkspace";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { ChecksPanel } from "./ChecksPanel";
 import { ReviewDraft } from "./ReviewDraft";
+import { useSnoozes, SnoozePanel, SnoozeControl, type SnoozeState } from "./Snooze";
 
 type PullRequest = {
   id: number;
@@ -90,6 +91,7 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [activeProvider, setActiveProvider] = useState("");
+  const snoozes = useSnoozes(activeProvider, csrfToken);
   const [activeTab, setActiveTab] = useState<"review" | "mine" | "history">("review");
   const [query, setQuery] = useState("");
   const [org, setOrg] = useState("");
@@ -177,7 +179,7 @@ function App() {
   };
 
   const queue = activeTab === "history" ? history ? { ...history, truncated: false, ordering: "Most recently confirmed review first" } : undefined : activeTab === "review" ? inbox?.toReview : inbox?.myPRs;
-  const queueItems = queue?.items ?? [];
+  const queueItems = (queue?.items ?? []).filter((item) => !snoozes.hidden.has(item.id));
   const orgOptions = countBy(queueItems, (item) => orgOf(item.repo));
   const activeOrg = orgOptions.some(([name]) => name === org) ? org : "";
   const repoOptions = countBy(
@@ -276,6 +278,7 @@ function App() {
               <button className={activeTab === "history" ? "tab active" : "tab"} onClick={() => setActiveTab("history")}>Previously reviewed <span className="count">{history?.totalCount ?? "–"}</span></button>
             </nav>
         )}
+        {provider && <SnoozePanel state={snoozes} readOnly={session?.readOnly ?? true} onSelect={(target) => setSelectedPR({ ...target, ci: "unknown", reasons: [] })} />}
         {(inbox || activeTab === "history") && (
           <>
             <div className="freshness">
@@ -332,12 +335,12 @@ function App() {
               {filtered.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon" aria-hidden="true">{hasFilters ? "⌕" : "✓"}</div>
-                  <h3>{hasFilters ? `No matching ${nounPlural}` : activeTab === "history" ? error ? "Review history unavailable" : loading ? "Checking review history…" : history?.incomplete ? "Some review history is unavailable" : "No tracked reviews yet" : "You're all caught up"}</h3>
-                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : activeTab === "history" ? "Confirmed reviews submitted through this version of the app will appear here, even after leaving To review." : `There are no open ${nounPlural} in this queue right now.`}</p>
+                  <h3>{hasFilters ? `No matching ${nounPlural}` : activeTab === "history" ? error ? "Review history unavailable" : loading ? "Checking review history…" : history?.incomplete ? "Some review history is unavailable" : snoozes.active.length ? "No visible reviewed items" : "No tracked reviews yet" : snoozes.active.length ? "No visible items in this queue" : "You're all caught up"}</h3>
+                  <p>{hasFilters ? "Try different filters, or clear the organization and repository selection." : activeTab === "history" ? "Confirmed reviews submitted through this version of the app will appear here, even after leaving To review." : `There are no visible ${nounPlural} in this queue right now. Check Snoozed for items you deferred.`}</p>
                 </div>
               ) : (
                 <ul className="pr-list">
-                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} history={activeTab === "history" ? item as ReviewedItem : undefined} stale={activeTab === "history" && !!error} onSelect={() => setSelectedPR(item)} />)}
+                  {filtered.map((item) => <PRCard key={item.id} item={item} noun={noun} hostName={hostName} snoozes={snoozes} readOnly={session?.readOnly ?? true} history={activeTab === "history" ? item as ReviewedItem : undefined} stale={activeTab === "history" && !!error} onSelect={() => setSelectedPR(item)} />)}
                 </ul>
               )}
             </section>
@@ -451,7 +454,7 @@ const reasonHelp: Record<string, string> = {
   "Authored by you": "You opened this pull request.",
 };
 
-function PRCard({ item, noun, hostName, history, stale, onSelect }: { item: PullRequest; noun: string; hostName: string; history?: ReviewedItem; stale?: boolean; onSelect: () => void }) {
+function PRCard({ item, noun, hostName, history, stale, snoozes, readOnly, onSelect }: { item: PullRequest; noun: string; hostName: string; history?: ReviewedItem; stale?: boolean; snoozes: SnoozeState; readOnly: boolean; onSelect: () => void }) {
   const ci = stale ? "unknown" : item.ci ?? "unknown";
   const draft = item.draft === true ? "Draft" : item.draft === false ? "Ready for review" : "Draft status unavailable";
   return (
@@ -477,6 +480,7 @@ function PRCard({ item, noun, hostName, history, stale, onSelect }: { item: Pull
         ))}
       </div>
       <a className="open-link" href={item.html_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.repo} ${noun} ${item.number} on ${hostName}`}>↗</a>
+      <div className="pr-snooze"><SnoozeControl id={item.id} state={snoozes} readOnly={readOnly} /></div>
       {history && <div className="history-details"><span className={`history-head history-${stale ? "unknown" : history.headStatus}`}>{stale || history.headStatus === "unknown" ? "Head check unavailable" : history.headStatus === "changed" ? "Head changed since review" : "Head matches reviewed commit"}</span><p>Last confirmed review: {history.reviewAction.replace(/_/g, " ")} · {new Date(history.reviewedAt).toLocaleString()} · <code>{history.reviewedSHA.slice(0, 12)}</code> · <a href={history.reviewURL} target="_blank" rel="noreferrer">View review ↗</a></p><p>{history.checkedAt ? `Last successful check: ${new Date(history.checkedAt).toLocaleString()}` : "No successful head check yet"}{history.state ? ` · ${history.headStatus === "unknown" || stale ? "Last-known state" : "State"}: ${history.state}` : ""}</p></div>}
     </li>
   );
