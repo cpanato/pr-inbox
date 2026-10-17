@@ -20,14 +20,19 @@ type Service struct {
 	provider provider.Provider
 	orgs     []string
 
-	mu            sync.Mutex
-	cached        *Snapshot
-	cachedAt      time.Time
-	revisions     map[string]provider.DiffSource
-	revisionOrder []string
-	viewable      map[string]map[string]bool
-	reviewStore   *state.Store
-	confirmations map[string]reviewConfirmation
+	mu                 sync.Mutex
+	cached             *Snapshot
+	cachedAt           time.Time
+	revisions          map[string]provider.DiffSource
+	revisionOrder      []string
+	viewable           map[string]map[string]bool
+	reviewStore        *state.Store
+	confirmations      map[string]reviewConfirmation
+	reviewedMu         sync.Mutex
+	reviewed           *ReviewedQueue
+	reviewedAt         time.Time
+	reviewedGeneration uint64
+	historyProjects    map[int64]int64
 }
 
 type PullRequest struct {

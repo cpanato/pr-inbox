@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -172,7 +173,7 @@ func (s *Service) SubmitReview(ctx context.Context, id int64, revision, token, s
 			}
 		}
 		hash := sha256.Sum256([]byte(content))
-		op := state.ReviewOperation{ID: confirmation.operationID, Status: "sending", HeadSHA: source.HeadSHA, DraftVersion: draft.Version, Action: draft.Action, BodyHash: hex.EncodeToString(hash[:]), StartedAt: time.Now().UTC()}
+		op := state.ReviewOperation{Owner: s.reviewOwner(), Target: &source.PullRequest, ProjectID: source.ProjectID, ID: confirmation.operationID, Status: "sending", HeadSHA: source.HeadSHA, DraftVersion: draft.Version, Action: draft.Action, BodyHash: hex.EncodeToString(hash[:]), StartedAt: time.Now().UTC()}
 		if err := tx.Record(op); err != nil {
 			return err
 		} // No POST unless the operation is durable.
@@ -190,6 +191,10 @@ func (s *Service) SubmitReview(ctx context.Context, id int64, revision, token, s
 			return sendErr
 		}
 		op.Status = "confirmed"
+		op.Owner = s.reviewOwner()
+		op.Target = &source.PullRequest
+		op.ProjectID = source.ProjectID
+		op.ConfirmedAt = time.Now().UTC()
 		op.HeadStatus = "unknown"
 		op.Result = review
 		if err := tx.Record(op); err != nil {
@@ -202,6 +207,8 @@ func (s *Service) SubmitReview(ctx context.Context, id int64, revision, token, s
 	if result != nil && result.Status == "confirmed" {
 		s.mu.Lock()
 		s.cachedAt = time.Time{}
+		s.reviewedAt = time.Time{}
+		s.reviewedGeneration++
 		s.mu.Unlock()
 	}
 	return result, err
@@ -256,6 +263,10 @@ func (s *Service) ReconcileReview(ctx context.Context, id int64, revision string
 				return err
 			}
 			op.Status = "confirmed"
+			op.Owner = s.reviewOwner()
+			op.Target = &source.PullRequest
+			op.ProjectID = source.ProjectID
+			op.ConfirmedAt = time.Now().UTC()
 			op.HeadStatus = "unknown"
 			op.Result = review
 			if err := tx.Record(*op); err != nil {
@@ -271,7 +282,15 @@ func (s *Service) ReconcileReview(ctx context.Context, id int64, revision string
 	if result != nil && result.Status == "confirmed" {
 		s.mu.Lock()
 		s.cachedAt = time.Time{}
+		s.reviewedAt = time.Time{}
+		s.reviewedGeneration++
 		s.mu.Unlock()
 	}
 	return result, err
+}
+
+func (s *Service) reviewOwner() string {
+	info := s.Info()
+	data, _ := json.Marshal([]any{info.Kind, info.Host, info.ID, info.Viewer.ID, info.Viewer.Login})
+	return string(data)
 }

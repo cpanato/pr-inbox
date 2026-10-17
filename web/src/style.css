@@ -223,3 +223,11 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .review-confirmation dd { margin: 0.2rem 0 0.8rem; }
 .review-confirmation-body { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 22rem; overflow: auto; font: inherit; background: #fff; padding: 0.8rem; }
 .review-confirmation .draft-actions { margin-top: 0.8rem; }
+
+.history-details { grid-column: 1 / -1; margin: 0.7rem 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.history-details p { margin: 0.5rem 0 0; }
+.history-head { display: inline-block; border-radius: 5px; padding: 3px 7px; font-weight: 600; }
+.history-changed { color: #826017; background: #fff4d7; }
+.history-unchanged { color: var(--green); background: #e8f6ef; }
+.history-unknown { color: #596373; background: #edf0f5; }
+.tabs { flex-wrap: wrap; }

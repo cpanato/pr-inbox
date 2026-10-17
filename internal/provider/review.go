@@ -44,3 +44,9 @@ type ReviewContentProvider interface {
 	ReviewContent(DiffSource, string, string) (string, error)
 	ReviewNotices(string) []string
 }
+
+// HistoryProvider restores server-persisted coordinates after an item leaves
+// discovery. Implementations must revalidate upstream identity before caching.
+type HistoryProvider interface {
+	HistoricalDetail(context.Context, PullRequest, int64) (Detail, error)
+}

@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -58,5 +59,44 @@ func TestDetailRejectsUnknownAndMismatchedMergeRequests(t *testing.T) {
 	client.projects[10] = 77
 	if _, err := client.Detail(context.Background(), pr); err == nil {
 		t.Fatal("accepted mismatched MR")
+	}
+}
+
+func TestHistoricalDetailRestoresProjectOnlyAfterIdentityValidation(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprint(mismatch), func(t *testing.T) {
+			calls := 0
+			client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/api/v4/projects/77/merge_requests/3" {
+					t.Errorf("path=%s", r.URL.Path)
+				}
+				mr := mrJSON(10, 3, 77, "acme")
+				if mismatch {
+					mr["id"] = 11
+				}
+				mr["sha"] = "review-sha"
+				mr["state"] = "closed"
+				json.NewEncoder(w).Encode(mr)
+			}))
+			p := NewProvider(client, provider.Viewer{ID: 42, Login: "you"})
+			pr := provider.PullRequest{ID: 10, Number: 3, Repo: "acme/app"}
+			detail, err := p.HistoricalDetail(context.Background(), pr, 77)
+			if mismatch {
+				if err == nil {
+					t.Fatal("wrong historical identity accepted")
+				}
+				if _, ok := client.projects[10]; ok {
+					t.Fatal("invalid project cached")
+				}
+				return
+			}
+			if err != nil || detail.DiffSource.ProjectID != 77 || detail.State != "closed" {
+				t.Fatalf("detail=%+v err=%v", detail, err)
+			}
+			if _, err := client.Detail(context.Background(), pr); err != nil || calls != 2 {
+				t.Fatalf("restored detail=%v calls=%d", err, calls)
+			}
+		})
 	}
 }

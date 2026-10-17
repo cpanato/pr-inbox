@@ -185,6 +185,41 @@ See the [notes API](https://docs.gitlab.com/api/notes/),
 [approvals API](https://docs.gitlab.com/api/merge_request_approvals/) and
 [draft review publication API](https://docs.gitlab.com/api/draft_notes/).
 
+## Previously reviewed
+
+The **Previously reviewed** tab lists the most recent confirmed overall review
+per PR/MR tracked by this app, separated by provider, host and account. It remains
+available after an item leaves **To review** or **My PRs**, and includes closed and
+merged items. Each entry shows the reviewed SHA, action, confirmation time and
+review link. **Head changed since review** means the current head differs from
+that SHA; it does not claim how many commits changed or that a later commit was
+reviewed. **Head matches reviewed commit** describes the last successful check.
+
+History loads on demand and is cached in memory for two minutes. **Refresh** reads
+the provider again, with at most four concurrent requests, a 20-second per-item
+read timeout and a 25-second request budget. Individual failures show **Head check
+unavailable**, retain the last successful check time when present, and do not
+claim an unchanged head. A failed history reload retains the previously loaded
+list with a stale-data notice. Organization/repository/search filters apply to
+the loaded history. The `--org` flag narrows inbox discovery; this local history
+is account-wide and checks previously tracked targets independently.
+
+History contains locally saved metadata and may remain visible when upstream
+access is unavailable. Read-only mode permits loading and refreshing history;
+these operations never write to disk or submit a review. Opening an item still
+fetches fresh details and applies the normal revision/submission checks.
+GitLab target project IDs are saved and revalidated before restoring detail access.
+
+Metadata is saved atomically under `review-history-v1` in `--state-dir`, independently
+of later failed or uncertain review attempts. It includes provider/account identity,
+target identifiers, title/author/timestamps, reviewed SHA, action and the confirmed
+review result; it excludes review bodies, descriptions, patches and credentials.
+Only reviews confirmed after this history feature was introduced are tracked.
+Older operation journals without target coordinates cannot be reconstructed, and
+reviews performed elsewhere are not imported. The latest 200 entries are displayed;
+corrupt records or a capped list are explicitly marked incomplete. This is local
+follow-up history, not a complete provider review history.
+
 ## Roadmap
 
 Milestone 3 is complete; Milestone 5 is the next delivery priority. Milestone 4 is
@@ -209,8 +244,8 @@ change in scope. Milestone numbers identify the themes, not their delivery order
   - [x] GitLab.com and self-hosted instances (`--gitlab`, repeatable) with merge requests to review, authored merge requests and pipeline status
   - [x] One tab per provider instance in the UI; a single GitHub provider keeps the current layout
 - [ ] **Milestone 5 – Personal triage and follow-up (next after Milestone 3):**
-  - Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
-  - Detect changed heads since the last confirmed review, with explicit freshness and coverage
+  - [x] Previously reviewed PRs/MRs tracked from successful reviews submitted through this app
+  - [x] Detect changed heads since the last confirmed review, with explicit freshness and coverage
   - Snooze items until a chosen date, then return them to the queue
   - Persist filters, ordering and preferences per account and provider
   - Expand team review-request coverage, with explicit completeness limits

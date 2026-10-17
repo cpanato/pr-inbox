@@ -20,6 +20,7 @@ var ErrRevisionUnavailable = errors.New("the inspected revision is unavailable; 
 // DiffSource contains only server-resolved upstream coordinates. It is never
 // populated from browser query parameters.
 type DiffSource struct {
+	ProjectID         int64  // GitLab target project, resolved by the server.
 	ReviewOperationID string // Allocated by the server for confirmed review submissions.
 	PipelineID        int64
 	PipelineProjectID int64
