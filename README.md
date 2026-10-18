@@ -4,8 +4,9 @@
 
 # PR Inbox
 
-A local GitHub pull request inbox. The Go server reads the existing GitHub CLI
-authentication and serves an embedded browser interface on loopback.
+A local inbox for GitHub pull requests and GitLab merge requests. Browse through
+an embedded web interface or an interactive terminal UI, using existing CLI
+authentication or provider tokens.
 
 ![PR Inbox showing the To review queue with CI status, filters and review reasons](assets/screenshot.png)
 
@@ -301,6 +302,54 @@ that it is excluded. Group eligibility and assigned reviewers are distinct in th
 [GitLab merge requests API](https://docs.gitlab.com/api/merge_requests/) and
 [approval rules API](https://docs.gitlab.com/api/merge_request_approvals/).
 
+## Terminal mode
+
+Use the interactive terminal interface to browse PRs and MRs and open the selected
+item directly on GitHub or GitLab:
+
+```sh
+./dist/pr-inbox --tui
+./dist/pr-inbox --tui --demo
+./dist/pr-inbox --tui --org ossf
+```
+
+This mode uses [Bubble Tea](https://github.com/charmbracelet/bubbletea),
+[Bubbles](https://github.com/charmbracelet/bubbles) and
+[Lip Gloss](https://github.com/charmbracelet/lipgloss). It starts without opening a
+browser or starting the local HTTP server. Both stdin and stdout must be attached
+to an interactive terminal. `--tui` cannot be combined with `doctor`.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓`, `j` / `k` | Navigate items; the list also supports paging. |
+| `Enter` | Open the selected PR/MR in the browser and keep the terminal list open. |
+| `Tab` / `Shift+Tab` | Cycle To review, authored items, Previously reviewed and Snoozed. |
+| `[` (previous), `]` (next) | Switch provider. |
+| `t` | Toggle normal (light) and night themes. |
+| `/` | Edit the search filter. Enter or Esc finishes editing without opening an item. |
+| `Esc` outside the filter | Clear search, organization and repository filters. |
+| `r` | Refresh the current queue and reload local snoozes. |
+| `q` outside the filter, `Ctrl+C` | Quit. |
+
+The terminal uses the same authentication, organization scope, discovery limits,
+review history and state directory as the web interface. It shows review-request
+reasons, CI, coverage notices and stale results after a failed refresh. Browser
+launch failures leave the list available for retry.
+
+Saved organization/repository/search/order/queue preferences are read on first
+load per provider; terminal adjustments are temporary. Previously reviewed keeps
+its review-time ordering. Active snoozes hide items, and overdue reminders remain
+visible after restarting. Local snooze state reloads every 30 seconds and deadlines
+are checked while the terminal is open; provider queues refresh on demand with `r`.
+The Snoozed view shows saved metadata, which may be stale, and includes overdue
+reminders even when an item has left discovery.
+
+This first terminal version is browse-only: review submission, snooze changes and
+reminder dismissal remain available through the web interface. It performs no
+local-state writes, including when `--read-only` is supplied. `--no-open` continues
+to print the web launch URL when using the web interface; combined with `--tui`,
+it has no additional effect, and Enter still explicitly opens the selected item.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for delivered capabilities and ideas to revisit:
@@ -341,6 +390,7 @@ Useful options:
 | `./dist/pr-inbox --no-gitlab` | Skips the automatic gitlab.com tab. |
 | `./dist/pr-inbox --read-only` | Disables writes, including local viewed markers and review drafts. Existing progress and drafts can still be read. Also disables GitHub review submission and outcome reconciliation. Defaults to off. |
 | `./dist/pr-inbox --state-dir PATH` | Chooses the directory for local review progress and drafts. |
+| `./dist/pr-inbox --tui` | Browses queues interactively in the terminal. Enter opens the selected PR/MR on the provider. No local HTTP server or automatic browser launch. |
 | `./dist/pr-inbox --demo` | Runs with built-in sample data instead of GitHub. No `gh` or authentication is needed and no network calls are made, so it is a safe way to try the interface (and how the README screenshot is produced). Can be combined with `--org` and `--no-open`, but not with `doctor`. |
 | `./dist/pr-inbox doctor` | Checks that `gh` is installed and authenticated and that the GitHub API (and every `--gitlab` host) is reachable, prints the accounts, then exits without starting the server. `--doctor` works too. |
 
