@@ -25,6 +25,7 @@ import (
 	"github.com/cpanato/pr-inbox/internal/provider"
 	"github.com/cpanato/pr-inbox/internal/server"
 	"github.com/cpanato/pr-inbox/internal/state"
+	"github.com/cpanato/pr-inbox/internal/tui"
 )
 
 type stringList []string
@@ -53,6 +54,7 @@ func run(args []string) error {
 	}
 	flags := flag.NewFlagSet("pr-inbox", flag.ContinueOnError)
 	stateDir := flags.String("state-dir", "", "directory for local review progress (defaults to the user config directory)")
+	terminalUI := flags.Bool("tui", false, "browse PRs and MRs interactively in the terminal")
 	noOpen := flags.Bool("no-open", false, "print the local URL without opening a browser")
 	readOnly := flags.Bool("read-only", false, "disable write operations, including local review progress")
 	doctor := flags.Bool("doctor", false, "check GitHub CLI authentication and GitHub connectivity")
@@ -73,6 +75,12 @@ func run(args []string) error {
 		return fmt.Errorf("unexpected argument %q", flags.Arg(0))
 	}
 	*doctor = *doctor || doctorCommand
+	if *terminalUI && *doctor {
+		return errors.New("--tui cannot be combined with doctor")
+	}
+	if *terminalUI && !tui.Interactive(os.Stdin, os.Stdout) {
+		return errors.New("--tui requires an interactive terminal on stdin and stdout")
+	}
 	if *demoMode && *doctor {
 		return errors.New("--demo cannot be combined with doctor")
 	}
@@ -107,6 +115,11 @@ func run(args []string) error {
 	store := state.New(*stateDir)
 	for _, service := range services {
 		service.SetReviewStore(store)
+	}
+	if *terminalUI {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return tui.Run(ctx, services, func(url string) error { return browserCommand(url).Run() })
 	}
 	primary := services[0].Info()
 
@@ -229,7 +242,7 @@ func connectProviders(ctx context.Context, orgs, gitlabHosts []string, noGitHub,
 	return append(ready, missing...), nil
 }
 
-func openBrowser(url string) error {
+func browserCommand(url string) *exec.Cmd {
 	var command string
 	var args []string
 	switch runtime.GOOS {
@@ -240,7 +253,10 @@ func openBrowser(url string) error {
 	default:
 		command, args = "xdg-open", []string{url}
 	}
-	cmd := exec.Command(command, args...)
+	return exec.Command(command, args...)
+}
+func openBrowser(url string) error {
+	cmd := browserCommand(url)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

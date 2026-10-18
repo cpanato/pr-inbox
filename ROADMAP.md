@@ -26,6 +26,9 @@ limits are documented in the [README](README.md).
 - [x] Filters, ordering and queue preferences saved per account and provider.
 - [x] Separate GitHub direct/team review-request discovery, deduplicated reasons
   and completeness notices; explicit GitLab group approval eligibility exclusions.
+- [x] Browse-only terminal mode (`--tui`) with keyboard navigation, filtering,
+  provider/queue switching, refresh and direct browser links, using shared snoozes
+  and read-only saved preferences.
 - [x] Basic `doctor` checks for authentication, selected accounts and provider
   connectivity without starting the server.
 
