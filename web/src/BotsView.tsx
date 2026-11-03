@@ -35,11 +35,14 @@ const reviewText: Record<string, string> = { approved: "Approved", changes_reque
 const storageGet = (key: string, fallback: string) => { try { return window.localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const storageSet = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* storage unavailable */ } };
 
+const otherOrg = "__other__";
+
 export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const available = providers.filter((item) => item.botsAvailable);
   const [providerId, setProviderId] = useState(available[0]?.id ?? "");
   const [orgs, setOrgs] = useState<string[]>([]);
   const [org, setOrg] = useState(() => storageGet("bots.org", ""));
+  const [customOrg, setCustomOrg] = useState(false);
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,9 +155,25 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         <div className="page-heading"><div><p className="eyebrow">AUTOMATION PULL REQUESTS</p><h1>Bot PRs by repository</h1></div></div>
         <form className="bots-form" onSubmit={(event) => { event.preventDefault(); void load(org, author); }}>
           <label>Organization
-            <input list="bots-orgs" value={org} onChange={(event) => setOrg(event.target.value)} placeholder="my-org" required />
-            <datalist id="bots-orgs">{orgs.map((name) => <option key={name} value={name} />)}</datalist>
+            <select
+              value={customOrg ? otherOrg : org}
+              onChange={(event) => {
+                if (event.target.value === otherOrg) { setCustomOrg(true); return; }
+                setCustomOrg(false);
+                setOrg(event.target.value);
+                void load(event.target.value, author);
+              }}
+            >
+              {orgs.map((name) => <option key={name} value={name}>{name}</option>)}
+              {org && !customOrg && !orgs.includes(org) && <option value={org}>{org}</option>}
+              <option value={otherOrg}>Other…</option>
+            </select>
           </label>
+          {customOrg && (
+            <label>Other organization
+              <input value={org} onChange={(event) => setOrg(event.target.value)} placeholder="my-org" required autoFocus />
+            </label>
+          )}
           <label>Author
             <input list="bots-authors" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="dependabot" required />
             <datalist id="bots-authors">{authorPresets.map((name) => <option key={name} value={name} />)}</datalist>
