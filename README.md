@@ -389,6 +389,16 @@ expanded diagnostics, automatic inbox refresh, and local-state backup/restore.
 Backlog items have no committed order or delivery date. Inline review remains
 deferred, with no implementation currently planned.
 
+## Install
+
+With Homebrew (macOS and Linux):
+
+```sh
+brew install cpanato/tap/pr-inbox
+```
+
+Or download an archive from [Releases](https://github.com/cpanato/pr-inbox/releases).
+
 ## Requirements
 
 - Go and Node.js 24 to build from source (not needed for a release binary).

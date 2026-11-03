@@ -56,3 +56,22 @@ snapshot:
 
 changelog:
   use: github-native
+
+homebrew_casks:
+  - name: pr-inbox
+    repository:
+      owner: cpanato
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/cpanato/pr-inbox
+    description: Local inbox for GitHub pull requests and GitLab merge requests
+    license: Apache-2.0
+    skip_upload: auto # don't publish prereleases
+    hooks:
+      post:
+        # The binaries aren't notarized; clear quarantine so macOS runs them.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pr-inbox"]
+          end
