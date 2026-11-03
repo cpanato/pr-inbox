@@ -6,6 +6,7 @@ import { DiffWorkspace } from "./DiffWorkspace";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { ChecksPanel } from "./ChecksPanel";
 import { ReviewDraft } from "./ReviewDraft";
+import { BotsView } from "./BotsView";
 import { usePreferences, PreferencesStatus } from "./Preferences";
 import { useSnoozes, SnoozePanel, SnoozeControl, type SnoozeState } from "./Snooze";
 
@@ -60,6 +61,7 @@ type ProviderInfo = {
   host: string;
   viewer: string;
   reviewsAvailable: boolean;
+  botsAvailable?: boolean;
 };
 
 type Session = {
@@ -68,6 +70,7 @@ type Session = {
   viewer: string;
   readOnly: boolean;
   mutationsAvailable: boolean;
+  botsMode?: boolean;
   host: string;
 };
 
@@ -149,7 +152,7 @@ function App() {
         const first = identity.providers[0]?.id ?? "";
         setActiveProvider(first);
         setBooting(false);
-        await loadInbox(first);
+        if (!identity.botsMode) await loadInbox(first);
       } catch (reason) {
         if (!active) return;
         setStartupError(reason instanceof Error ? reason.message : "Could not connect to PR Inbox.");
@@ -197,6 +200,10 @@ function App() {
 
   if (booting && !startupError) {
     return <main className="center-state"><span className="spinner" />Connecting…</main>;
+  }
+
+  if (session?.botsMode) {
+    return <BotsView providers={session.providers} csrfToken={csrfToken} readOnly={session.readOnly} />;
   }
 
   return (

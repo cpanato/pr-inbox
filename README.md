@@ -12,6 +12,12 @@ authentication or provider tokens.
 
 ![The same inbox on a GitLab tab, showing merge requests](assets/screenshot-gitlab.png)
 
+New: **`pr-inbox bots`** lists dependabot/renovate pull requests for a whole
+organization, grouped by repository, so you can check CI and conflicts and
+approve, merge or comment in bulk. See [Bot pull requests](#bot-pull-requests-dependabot-renovate).
+
+![The bots view listing dependabot pull requests by repository with CI, conflict and review status and bulk approve, merge and comment actions](assets/screenshot-bots.png)
+
 The screenshots use sample data (`--demo`). With more than one provider, each gets its own tab.
 
 ## Current implementation
@@ -301,6 +307,32 @@ eligibility is not treated as a review request, and the UI explicitly discloses
 that it is excluded. Group eligibility and assigned reviewers are distinct in the
 [GitLab merge requests API](https://docs.gitlab.com/api/merge_requests/) and
 [approval rules API](https://docs.gitlab.com/api/merge_request_approvals/).
+
+## Bot pull requests (dependabot, renovate)
+
+```sh
+pr-inbox bots          # web UI
+pr-inbox bots --tui    # terminal UI
+pr-inbox bots --demo   # sample data
+```
+
+No flags are needed: choose the organization (your orgs are suggested), the
+author (`dependabot`, `renovate` or any login) and a status filter in the
+interface. Open PRs are grouped by repository with CI status, mergeability
+(conflicts are highlighted) and review state. Select PRs individually, per
+repository or all at once, then **Approve**, **Merge** (with a confirmation
+and a merge method) or **Comment** (for example `@dependabot rebase`; "Ask to
+rebase" is a shortcut on conflicting PRs). Approve and merge are pinned to the
+listed head commit, so a PR that changed since it was listed is not merged.
+`--read-only` disables all actions. Works on GitHub and GitLab (GitLab merge
+methods are merge and squash; write actions need a token with the `api` scope).
+
+Terminal keys: `j/k` move, `x` select, `*` select all, `f` status filter, `/`
+search, `o` organization, `u` author, `a` approve, `m` merge (`M` changes the
+method), `b` rebase comment, `c` comment, `enter` open, `r` refresh, `[`/`]`
+provider.
+
+![The bots terminal UI listing dependabot pull requests by repository](assets/screenshot-bots-tui.png)
 
 ## Terminal mode
 

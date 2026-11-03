@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cpanato/pr-inbox/internal/auth"
+	"github.com/cpanato/pr-inbox/internal/bots"
 	"github.com/cpanato/pr-inbox/internal/demo"
 	"github.com/cpanato/pr-inbox/internal/github"
 	"github.com/cpanato/pr-inbox/internal/gitlab"
@@ -49,7 +50,8 @@ func main() {
 
 func run(args []string) error {
 	doctorCommand := len(args) > 0 && args[0] == "doctor"
-	if doctorCommand {
+	botsCommand := len(args) > 0 && args[0] == "bots"
+	if doctorCommand || botsCommand {
 		args = args[1:]
 	}
 	flags := flag.NewFlagSet("pr-inbox", flag.ContinueOnError)
@@ -85,6 +87,9 @@ func run(args []string) error {
 		return errors.New("--demo cannot be combined with doctor")
 	}
 
+	if botsCommand && (*doctor || len(orgs) > 0) {
+		return errors.New("bots takes no --org or doctor; choose the organization and author in the interface")
+	}
 	if *demoMode && (len(gitlabHosts) > 0 || *noGitHub || *noGitLab) {
 		return errors.New("--demo cannot be combined with --gitlab, --no-github or --no-gitlab")
 	}
@@ -94,7 +99,10 @@ func run(args []string) error {
 
 	var services []*inbox.Service
 	if *demoMode {
-		services = append(services, inbox.New(demo.New(), orgs), inbox.New(demo.NewGitLab(), nil))
+		services = append(services, inbox.New(demo.New(), orgs))
+		if !botsCommand {
+			services = append(services, inbox.New(demo.NewGitLab(), nil))
+		}
 	} else {
 		var err error
 		services, err = connectProviders(context.Background(), orgs, gitlabHosts, *noGitHub, *noGitLab, *doctor)
@@ -116,18 +124,49 @@ func run(args []string) error {
 	for _, service := range services {
 		service.SetReviewStore(store)
 	}
+	if botsCommand {
+		return runBots(services, *terminalUI, *noOpen, *readOnly)
+	}
 	if *terminalUI {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return tui.Run(ctx, services, func(url string) error { return browserCommand(url).Run() })
 	}
+	return serve(services, *noOpen, *readOnly, false)
+}
+
+// runBots opens the automation pull request manager. The organization and
+// author are chosen in the interface, so no flags are needed.
+func runBots(services []*inbox.Service, terminalUI, noOpen, readOnly bool) error {
+	if terminalUI {
+		var managers []*bots.Service
+		for _, service := range services {
+			if manager := bots.New(service.Info(), service.Provider()); manager != nil {
+				managers = append(managers, manager)
+			}
+		}
+		if len(managers) == 0 {
+			return errors.New("no connected provider supports managing bot pull requests")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return tui.RunBots(ctx, managers, readOnly, func(url string) error { return browserCommand(url).Run() })
+	}
+	return serve(services, noOpen, readOnly, true)
+}
+
+func serve(services []*inbox.Service, noOpen, readOnly, botsMode bool) error {
 	primary := services[0].Info()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
 	}
-	handler, launchURL, err := server.New(services, *readOnly, listener.Addr().String())
+	newServer := server.New
+	if botsMode {
+		newServer = server.NewBots
+	}
+	handler, launchURL, err := newServer(services, readOnly, listener.Addr().String())
 	if err != nil {
 		_ = listener.Close()
 		return err
@@ -144,7 +183,7 @@ func run(args []string) error {
 	}()
 
 	fmt.Printf("PR Inbox for @%s: %s\nPress Ctrl+C to stop.\n", primary.Viewer.Login, launchURL)
-	if !*noOpen {
+	if !noOpen {
 		if err := openBrowser(launchURL); err != nil {
 			log.Printf("could not open browser automatically: %v", err)
 		}
