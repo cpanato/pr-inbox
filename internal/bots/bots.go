@@ -64,6 +64,9 @@ func (s *Service) Orgs(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if orgs == nil {
+		orgs = []string{}
+	}
 	sort.Strings(orgs)
 	return orgs, nil
 }
@@ -89,7 +92,7 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 		return result.Items[i].CreatedAt.Before(result.Items[j].CreatedAt)
 	})
 	return Listing{
-		Org: org, Author: author, Items: result.Items, TotalCount: result.TotalCount, Incomplete: result.Incomplete,
+		Org: org, Author: author, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
 		FetchedAt: time.Now().UTC(), MergeMethods: s.p.MergeMethods(),
 	}, nil
 }
@@ -128,4 +131,12 @@ func (s *Service) Act(ctx context.Context, id int64, action, method, body string
 		return s.p.BotComment(ctx, pr, body)
 	}
 	return ErrBadAction
+}
+
+// nonNil keeps empty results as [] in JSON; the web UI maps over them.
+func nonNil(items []provider.BotPullRequest) []provider.BotPullRequest {
+	if items == nil {
+		return []provider.BotPullRequest{}
+	}
+	return items
 }
