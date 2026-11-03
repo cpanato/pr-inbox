@@ -1,0 +1,545 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/cpanato/pr-inbox/internal/bots"
+	"github.com/cpanato/pr-inbox/internal/provider"
+)
+
+// botManager is satisfied by *bots.Service.
+type botManager interface {
+	Info() provider.Info
+	Orgs(context.Context) ([]string, error)
+	List(ctx context.Context, org, author string) (bots.Listing, error)
+	Act(ctx context.Context, id int64, action, method, body string) error
+}
+
+type botInputKind int
+
+const (
+	inputNone botInputKind = iota
+	inputOrg
+	inputAuthor
+	inputComment
+	inputFilter
+)
+
+var botStatusFilters = []string{"all", "ready", "conflicts", "failing"}
+
+type botsLoadedMsg struct {
+	listing bots.Listing
+	err     error
+	notice  string
+}
+type botsOrgsMsg struct {
+	orgs []string
+	err  error
+}
+type botsOpenedMsg struct{ err error }
+
+type botsModel struct {
+	ctx      context.Context
+	services []botManager
+	active   int
+	readOnly bool
+	opener   func(string) error
+
+	org, author string
+	orgs        []string
+	listing     *bots.Listing
+	loading     bool
+	err, notice string
+
+	cursor   int
+	selected map[int64]bool
+	filter   int
+	query    string
+	method   int
+	confirm  string // pending merge confirmation
+	input    textinput.Model
+	inputing botInputKind
+
+	width, height int
+}
+
+// RunBots starts the interactive automation pull request manager.
+func RunBots(ctx context.Context, services []*bots.Service, readOnly bool, opener func(string) error) error {
+	if len(services) == 0 {
+		return errors.New("no providers configured")
+	}
+	if !Interactive(os.Stdin, os.Stdout) {
+		return errors.New("--tui requires an interactive terminal on stdin and stdout")
+	}
+	managers := make([]botManager, len(services))
+	for i, s := range services {
+		managers[i] = s
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	_, err := tea.NewProgram(newBotsModel(ctx, managers, readOnly, opener), tea.WithContext(ctx)).Run()
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+func newBotsModel(ctx context.Context, services []botManager, readOnly bool, opener func(string) error) *botsModel {
+	input := textinput.New()
+	input.CharLimit = 1024
+	input.Blur()
+	return &botsModel{ctx: ctx, services: services, readOnly: readOnly, opener: opener, author: "dependabot", selected: map[int64]bool{}, input: input, width: 80, height: 28}
+}
+
+func (m *botsModel) Init() tea.Cmd { return m.loadOrgs() }
+
+func (m *botsModel) loadOrgs() tea.Cmd {
+	service, root := m.services[m.active], m.ctx
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(root, 30*time.Second)
+		defer cancel()
+		orgs, err := service.Orgs(ctx)
+		return botsOrgsMsg{orgs: orgs, err: err}
+	}
+}
+
+func (m *botsModel) load(notice string) tea.Cmd {
+	if m.org == "" || m.author == "" {
+		return nil
+	}
+	m.loading = true
+	service, root, org, author := m.services[m.active], m.ctx, m.org, m.author
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(root, 45*time.Second)
+		defer cancel()
+		listing, err := service.List(ctx, org, author)
+		return botsLoadedMsg{listing: listing, err: err, notice: notice}
+	}
+}
+
+// visible applies the status filter and text query.
+func (m *botsModel) visible() []provider.BotPullRequest {
+	if m.listing == nil {
+		return nil
+	}
+	query := strings.ToLower(m.query)
+	out := []provider.BotPullRequest{}
+	for _, pr := range m.listing.Items {
+		switch botStatusFilters[m.filter] {
+		case "ready":
+			if pr.Mergeable != provider.MergeClean || pr.CI != provider.CISuccess {
+				continue
+			}
+		case "conflicts":
+			if pr.Mergeable != provider.MergeConflicting {
+				continue
+			}
+		case "failing":
+			if pr.CI != provider.CIFailure {
+				continue
+			}
+		}
+		if query != "" && !strings.Contains(strings.ToLower(pr.Repo+" "+pr.Title), query) {
+			continue
+		}
+		out = append(out, pr)
+	}
+	return out
+}
+
+// targets are the selected items, or the item under the cursor.
+func (m *botsModel) targets() []provider.BotPullRequest {
+	items := m.visible()
+	out := []provider.BotPullRequest{}
+	for _, pr := range items {
+		if m.selected[pr.ID] {
+			out = append(out, pr)
+		}
+	}
+	if len(out) == 0 && m.cursor < len(items) {
+		out = append(out, items[m.cursor])
+	}
+	return out
+}
+
+func (m *botsModel) act(action, body string) tea.Cmd {
+	targets := m.targets()
+	if len(targets) == 0 {
+		return nil
+	}
+	method := ""
+	if m.listing != nil && len(m.listing.MergeMethods) > 0 {
+		method = m.listing.MergeMethods[m.method%len(m.listing.MergeMethods)]
+	}
+	m.loading = true
+	m.notice = fmt.Sprintf("Running %s on %d item(s)…", action, len(targets))
+	service, root := m.services[m.active], m.ctx
+	org, author := m.org, m.author
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(root, 3*time.Minute)
+		defer cancel()
+		failures := []string{}
+		for _, pr := range targets {
+			if err := service.Act(ctx, pr.ID, action, method, body); err != nil {
+				failures = append(failures, fmt.Sprintf("%s#%d: %v", pr.Repo, pr.Number, err))
+			}
+		}
+		notice := fmt.Sprintf("%s: %d ok, %d failed", action, len(targets)-len(failures), len(failures))
+		if len(failures) > 0 {
+			notice += " — " + failures[0]
+		}
+		listing, err := service.List(ctx, org, author)
+		return botsLoadedMsg{listing: listing, err: err, notice: notice}
+	}
+}
+
+func (m *botsModel) startInput(kind botInputKind, value, prompt string) tea.Cmd {
+	m.inputing = kind
+	m.input.Prompt = prompt
+	m.input.SetValue(value)
+	return m.input.Focus()
+}
+
+func (m *botsModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := message.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+	case botsOrgsMsg:
+		if msg.err == nil {
+			m.orgs = msg.orgs
+			if m.org == "" && len(m.orgs) > 0 {
+				m.org = m.orgs[0]
+				return m, m.load("")
+			}
+		}
+		if m.org == "" {
+			return m, m.startInput(inputOrg, "", "Organization: ")
+		}
+	case botsLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		m.err, m.notice = "", msg.notice
+		m.listing = &msg.listing
+		present := map[int64]bool{}
+		for _, pr := range msg.listing.Items {
+			present[pr.ID] = true
+		}
+		for id := range m.selected {
+			if !present[id] {
+				delete(m.selected, id)
+			}
+		}
+		m.clamp()
+	case botsOpenedMsg:
+		if msg.err != nil {
+			m.notice = "Could not open browser: " + msg.err.Error()
+		}
+	case tea.KeyPressMsg:
+		return m.key(msg)
+	case tea.PasteMsg:
+		if m.inputing != inputNone {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+	}
+	return m, nil
+}
+
+func (m *botsModel) clamp() {
+	n := len(m.visible())
+	if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
+func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.inputing != inputNone {
+		switch msg.String() {
+		case "esc":
+			m.inputing = inputNone
+			m.input.Blur()
+			return m, nil
+		case "enter":
+			kind, value := m.inputing, strings.TrimSpace(m.input.Value())
+			m.inputing = inputNone
+			m.input.Blur()
+			switch kind {
+			case inputOrg:
+				if value != "" {
+					m.org, m.listing, m.cursor = value, nil, 0
+					return m, m.load("")
+				}
+			case inputAuthor:
+				if value != "" {
+					m.author, m.listing, m.cursor = value, nil, 0
+					return m, m.load("")
+				}
+			case inputComment:
+				if value != "" && !m.readOnly {
+					return m, m.act(bots.ActionComment, value)
+				}
+			case inputFilter:
+				m.query = value
+				m.clamp()
+			}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		if m.inputing == inputFilter {
+			m.query = m.input.Value()
+			m.clamp()
+		}
+		return m, cmd
+	}
+	if m.confirm != "" {
+		confirmed := msg.String() == "y"
+		m.confirm = ""
+		if confirmed {
+			return m, m.act(bots.ActionMerge, "")
+		}
+		m.notice = "Merge cancelled."
+		return m, nil
+	}
+	items := m.visible()
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+	case "j", "down":
+		if m.cursor < len(items)-1 {
+			m.cursor++
+		}
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "g":
+		m.cursor = 0
+	case "G":
+		m.cursor = max(0, len(items)-1)
+	case "x", "space", " ":
+		if m.cursor < len(items) {
+			id := items[m.cursor].ID
+			if m.selected[id] {
+				delete(m.selected, id)
+			} else {
+				m.selected[id] = true
+			}
+			if m.cursor < len(items)-1 {
+				m.cursor++
+			}
+		}
+	case "*":
+		all := len(items) > 0
+		for _, pr := range items {
+			all = all && m.selected[pr.ID]
+		}
+		for _, pr := range items {
+			if all {
+				delete(m.selected, pr.ID)
+			} else {
+				m.selected[pr.ID] = true
+			}
+		}
+	case "f":
+		m.filter = (m.filter + 1) % len(botStatusFilters)
+		m.cursor = 0
+	case "/":
+		return m, m.startInput(inputFilter, m.query, "Filter: ")
+	case "o":
+		return m, m.startInput(inputOrg, m.org, "Organization ("+strings.Join(m.orgs, ", ")+"): ")
+	case "u":
+		return m, m.startInput(inputAuthor, m.author, "Author (dependabot, renovate, …): ")
+	case "[", "]":
+		step := 1
+		if msg.String() == "[" {
+			step = -1
+		}
+		m.active = (m.active + step + len(m.services)) % len(m.services)
+		m.org, m.listing, m.orgs, m.cursor = "", nil, nil, 0
+		clear(m.selected)
+		return m, m.loadOrgs()
+	case "r":
+		return m, m.load("Refreshed.")
+	case "enter", "w":
+		if m.cursor < len(items) {
+			pr := items[m.cursor]
+			info := m.services[m.active].Info()
+			link, err := targetURL(info, pr.PullRequest)
+			if err != nil {
+				m.notice = err.Error()
+				return m, nil
+			}
+			opener := m.opener
+			return m, func() tea.Msg { return botsOpenedMsg{err: opener(link)} }
+		}
+	case "a", "m", "c", "b", "M":
+		if m.readOnly {
+			m.notice = "Read-only mode: actions are disabled."
+			return m, nil
+		}
+		if len(m.targets()) == 0 {
+			return m, nil
+		}
+		switch msg.String() {
+		case "a":
+			return m, m.act(bots.ActionApprove, "")
+		case "m":
+			m.confirm = fmt.Sprintf("Merge %d item(s) with %s? y/N", len(m.targets()), m.methodName())
+		case "M":
+			if m.listing != nil && len(m.listing.MergeMethods) > 0 {
+				m.method = (m.method + 1) % len(m.listing.MergeMethods)
+			}
+		case "b":
+			return m, m.act(bots.ActionComment, "@"+strings.TrimSuffix(m.author, "[bot]")+" rebase")
+		case "c":
+			return m, m.startInput(inputComment, "", "Comment: ")
+		}
+	}
+	return m, nil
+}
+
+func (m *botsModel) methodName() string {
+	if m.listing == nil || len(m.listing.MergeMethods) == 0 {
+		return "default"
+	}
+	return m.listing.MergeMethods[m.method%len(m.listing.MergeMethods)]
+}
+
+func botCI(state string) string {
+	switch state {
+	case provider.CISuccess:
+		return "CI ✓"
+	case provider.CIFailure:
+		return "CI ✗"
+	case provider.CIPending:
+		return "CI …"
+	case provider.CINone:
+		return "no CI"
+	}
+	return "CI ?"
+}
+
+func botMerge(state string) string {
+	switch state {
+	case provider.MergeClean:
+		return "mergeable"
+	case provider.MergeConflicting:
+		return "CONFLICTS"
+	case provider.MergeBehind:
+		return "behind"
+	case provider.MergeBlocked:
+		return "blocked"
+	}
+	return "checking"
+}
+
+func (m *botsModel) View() tea.View {
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8")).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#4ADE80"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#FB7185"))
+	amber := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24"))
+	width := max(20, m.width-2)
+	clip := func(s string) string { return ansi.Truncate(s, width, "…") }
+
+	info := m.services[m.active].Info()
+	lines := []string{
+		clip(accent.Render("Bot PRs") + muted.Render(fmt.Sprintf("  %s · org %s · author %s · status %s · merge %s", info.Name, safe(m.org), safe(m.author), botStatusFilters[m.filter], m.methodName()))),
+		"",
+	}
+	items := m.visible()
+	switch {
+	case m.loading && m.listing == nil:
+		lines = append(lines, "Loading…")
+	case m.org == "":
+		lines = append(lines, "Press o to choose an organization.")
+	case len(items) == 0:
+		lines = append(lines, "No matching pull requests.")
+	}
+	var body []string
+	cursorLine := 0
+	last := ""
+	for i, pr := range items {
+		if pr.Repo != last {
+			last = pr.Repo
+			body = append(body, accent.Render(safe(pr.Repo)))
+		}
+		mark, box := "  ", "[ ]"
+		if m.selected[pr.ID] {
+			box = "[x]"
+		}
+		if i == m.cursor {
+			mark = "▌ "
+			cursorLine = len(body)
+		}
+		ci := botCI(pr.CI)
+		switch pr.CI {
+		case provider.CISuccess:
+			ci = green.Render(ci)
+		case provider.CIFailure:
+			ci = red.Render(ci)
+		default:
+			ci = amber.Render(ci)
+		}
+		merge := botMerge(pr.Mergeable)
+		if pr.Mergeable == provider.MergeConflicting {
+			merge = red.Render(merge)
+		} else if pr.Mergeable == provider.MergeClean {
+			merge = green.Render(merge)
+		} else {
+			merge = amber.Render(merge)
+		}
+		body = append(body, clip(fmt.Sprintf("%s%s #%d %s  %s  %s  %s", mark, box, pr.Number, safe(pr.Title), ci, merge, muted.Render(strings.ReplaceAll(pr.ReviewState, "_", " ")))))
+	}
+	room := max(3, m.height-len(lines)-6)
+	start := 0
+	if cursorLine >= room {
+		start = cursorLine - room + 1
+	}
+	end := min(len(body), start+room)
+	lines = append(lines, body[start:end]...)
+
+	footer := []string{}
+	if m.err != "" {
+		footer = append(footer, red.Render(clip(safe(m.err))))
+	}
+	if m.notice != "" {
+		footer = append(footer, amber.Render(clip(safe(m.notice))))
+	}
+	switch {
+	case m.inputing != inputNone:
+		footer = append(footer, m.input.View())
+	case m.confirm != "":
+		footer = append(footer, amber.Render(m.confirm))
+	default:
+		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · [ ] provider")))
+		footer = append(footer, muted.Render(clip("a approve · m merge · M method · b rebase comment · c comment · enter open · r refresh · q quit")))
+	}
+	for len(lines)+len(footer) < m.height {
+		lines = append(lines, "")
+	}
+	v := tea.NewView(strings.Join(append(lines, footer...), "\n"))
+	v.AltScreen = true
+	return v
+}

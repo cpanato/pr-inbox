@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpanato/pr-inbox/internal/bots"
 	"github.com/cpanato/pr-inbox/internal/inbox"
 	"github.com/cpanato/pr-inbox/internal/provider"
 )
@@ -33,6 +34,7 @@ type Handler struct {
 	host      string
 	launchKey string
 	readOnly  bool
+	bots      map[string]*bots.Service
 	assets    http.Handler
 
 	mu       sync.Mutex
@@ -46,6 +48,24 @@ type errorResponse struct {
 
 // New serves the given providers; the first one is the default.
 func New(services []*inbox.Service, readOnly bool, address string) (http.Handler, string, error) {
+	return newHandler(services, nil, readOnly, address)
+}
+
+// NewBots serves the automation pull request manager instead of the inbox.
+func NewBots(services []*inbox.Service, readOnly bool, address string) (http.Handler, string, error) {
+	managers := make(map[string]*bots.Service)
+	for _, service := range services {
+		if manager := bots.New(service.Info(), service.Provider()); manager != nil {
+			managers[service.Info().ID] = manager
+		}
+	}
+	if len(managers) == 0 {
+		return nil, "", errors.New("no connected provider supports managing bot pull requests")
+	}
+	return newHandler(services, managers, readOnly, address)
+}
+
+func newHandler(services []*inbox.Service, managers map[string]*bots.Service, readOnly bool, address string) (http.Handler, string, error) {
 	if len(services) == 0 {
 		return nil, "", errors.New("at least one provider is required")
 	}
@@ -65,6 +85,7 @@ func New(services []*inbox.Service, readOnly bool, address string) (http.Handler
 		host:      host,
 		launchKey: launchKey,
 		readOnly:  readOnly,
+		bots:      managers,
 		assets:    http.FileServer(http.FS(dist)),
 		sessions:  make(map[string]string),
 	}
@@ -104,6 +125,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			info := service.Info()
 			providers = append(providers, map[string]any{
 				"id": info.ID, "name": info.Name, "kind": info.Kind, "host": info.Host, "viewer": info.Viewer.Login, "reviewsAvailable": service.ReviewsAvailable() && !h.readOnly,
+				"botsAvailable": h.bots[info.ID] != nil,
 			})
 		}
 		h.respond(w, http.StatusOK, map[string]any{
@@ -113,6 +135,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"mutationsAvailable": h.services[0].ReviewsAvailable() && !h.readOnly,
 			"host":               primary.Host,
 			"providers":          providers,
+			"botsMode":           h.bots != nil,
 		})
 	case "/api/history", "/api/history/refresh":
 		mutation := r.URL.Path == "/api/history/refresh"
@@ -155,6 +178,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.inbox(w, r, true)
 	case "/api/review", "/api/review/prepare", "/api/review/submit", "/api/review/reconcile":
 		h.review(w, r)
+	case "/api/bots", "/api/bots/orgs", "/api/bots/action":
+		h.botsAPI(w, r)
 	case "/api/draft":
 		h.draft(w, r)
 	case "/api/preferences":

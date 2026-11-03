@@ -124,31 +124,9 @@ func rollupState(rollup *statusRollup) string {
 }
 
 func (c *Client) graphQL(ctx context.Context, query string, variables map[string]any, destination *graphQLResponse) error {
-	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	body, err := c.postGraphQL(ctx, query, variables)
 	if err != nil {
-		return fmt.Errorf("build GitHub GraphQL request: %w", err)
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("build GitHub GraphQL request: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("GitHub GraphQL request failed: %w", err)
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
-	if err != nil {
-		return fmt.Errorf("read GitHub GraphQL response: %w", err)
-	}
-	if len(body) > maxResponse {
-		return fmt.Errorf("GitHub GraphQL response exceeded the 8 MiB limit")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("GitHub GraphQL returned %s", response.Status)
+		return err
 	}
 	if err := json.Unmarshal(body, destination); err != nil {
 		return fmt.Errorf("decode GitHub GraphQL response: %w", err)
@@ -159,4 +137,34 @@ func (c *Client) graphQL(ctx context.Context, query string, variables map[string
 		return fmt.Errorf("GitHub GraphQL error: %s", destination.Errors[0].Message)
 	}
 	return nil
+}
+
+func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	if err != nil {
+		return nil, fmt.Errorf("build GitHub GraphQL request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build GitHub GraphQL request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub GraphQL request failed: %w", err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
+	if err != nil {
+		return nil, fmt.Errorf("read GitHub GraphQL response: %w", err)
+	}
+	if len(body) > maxResponse {
+		return nil, fmt.Errorf("GitHub GraphQL response exceeded the 8 MiB limit")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("GitHub GraphQL returned %s", response.Status)
+	}
+	return body, nil
 }

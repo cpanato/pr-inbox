@@ -263,3 +263,6 @@ func cloneQueue(queue Queue) Queue {
 	}
 	return queue
 }
+
+// Provider exposes the underlying provider for optional capabilities.
+func (s *Service) Provider() provider.Provider { return s.provider }
