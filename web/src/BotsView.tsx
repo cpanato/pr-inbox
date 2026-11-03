@@ -55,6 +55,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [method, setMethod] = useState("");
   const [comment, setComment] = useState("");
   const [confirmMerge, setConfirmMerge] = useState(false);
+  const [customFor, setCustomFor] = useState<number | null>(null);
+  const [customText, setCustomText] = useState("");
 
   const load = useCallback(async (nextOrg: string, nextAuthor: string, keep = false) => {
     if (!nextOrg.trim() || !nextAuthor.trim()) return;
@@ -132,7 +134,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   };
 
   if (available.length === 0) return <main className="center-state">No connected provider supports bot pull requests.</main>;
-  const rebase = `@${author.replace(/\[bot\]$/, "")} rebase`;
+  const mention = `@${author.replace(/\[bot\]$/, "")}`;
+  const rebase = `${mention} rebase`;
   const disabled = readOnly || busy || loading;
 
   return (
@@ -234,7 +237,31 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                         <span className={`ci-label ci-${item.ci}`}>{ciText[item.ci] ?? item.ci}</span>
                         <span className={`merge-label merge-${item.mergeable}`}>{mergeText[item.mergeable] ?? item.mergeable}</span>
                         <span className="reason-label">{reviewText[item.review] ?? item.review}</span>
-                        {item.mergeable === "conflicting" && <button type="button" disabled={disabled} onClick={() => void run("comment", [item], rebase)}>Ask to rebase</button>}
+                        {item.mergeable === "conflicting" && (
+                          customFor === item.id ? (
+                            <form className="bots-custom" onSubmit={(event) => { event.preventDefault(); if (customText.trim()) { void run("comment", [item], customText.trim()); setCustomFor(null); } }}>
+                              <input aria-label="Custom command" value={customText} onChange={(event) => setCustomText(event.target.value)} placeholder={`${mention} …`} autoFocus />
+                              <button type="submit" disabled={disabled || !customText.trim()}>Send</button>
+                              <button type="button" onClick={() => setCustomFor(null)}>Cancel</button>
+                            </form>
+                          ) : (
+                            <select
+                              aria-label={`Ask ${author} to…`}
+                              value=""
+                              disabled={disabled}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                if (value === "custom") { setCustomText(`${mention} `); setCustomFor(item.id); }
+                                else if (value) void run("comment", [item], `${mention} ${value}`);
+                              }}
+                            >
+                              <option value="">Ask {author} to…</option>
+                              <option value="rebase">Rebase</option>
+                              <option value="recreate">Recreate</option>
+                              <option value="custom">Custom command…</option>
+                            </select>
+                          )
+                        )}
                       </div>
                     </li>
                   ))}
