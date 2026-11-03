@@ -92,7 +92,7 @@ func (c *Client) BotMerge(_ context.Context, pr provider.BotPullRequest, _ strin
 }
 func (c *Client) BotComment(_ context.Context, pr provider.BotPullRequest, body string) error {
 	return c.update(pr, func(p *provider.BotPullRequest) bool {
-		if strings.Contains(body, "rebase") && p.Mergeable == provider.MergeConflicting {
+		if (strings.Contains(body, "rebase") || strings.Contains(body, "recreate")) && p.Mergeable == provider.MergeConflicting {
 			p.Mergeable = provider.MergeClean
 		}
 		return true

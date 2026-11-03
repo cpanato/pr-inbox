@@ -393,7 +393,7 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			opener := m.opener
 			return m, func() tea.Msg { return botsOpenedMsg{err: opener(link)} }
 		}
-	case "a", "m", "c", "b", "M":
+	case "a", "m", "c", "b", "R", "M":
 		if m.readOnly {
 			m.notice = "Read-only mode: actions are disabled."
 			return m, nil
@@ -412,6 +412,8 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case "b":
 			return m, m.act(bots.ActionComment, "@"+strings.TrimSuffix(m.author, "[bot]")+" rebase")
+		case "R":
+			return m, m.act(bots.ActionComment, "@"+strings.TrimSuffix(m.author, "[bot]")+" recreate")
 		case "c":
 			return m, m.startInput(inputComment, "", "Comment: ")
 		}
@@ -534,7 +536,7 @@ func (m *botsModel) View() tea.View {
 		footer = append(footer, amber.Render(m.confirm))
 	default:
 		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · [ ] provider")))
-		footer = append(footer, muted.Render(clip("a approve · m merge · M method · b rebase comment · c comment · enter open · r refresh · q quit")))
+		footer = append(footer, muted.Render(clip("a approve · m merge · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
 	}
 	for len(lines)+len(footer) < m.height {
 		lines = append(lines, "")

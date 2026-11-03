@@ -321,15 +321,15 @@ author (`dependabot`, `renovate` or any login) and a status filter in the
 interface. Open PRs are grouped by repository with CI status, mergeability
 (conflicts are highlighted) and review state. Select PRs individually, per
 repository or all at once, then **Approve**, **Merge** (with a confirmation
-and a merge method) or **Comment** (for example `@dependabot rebase`; "Ask to
-rebase" is a shortcut on conflicting PRs). Approve and merge are pinned to the
+and a merge method) or **Comment** (for example `@dependabot rebase`; conflicting PRs get an "Ask… to"
+menu with Rebase, Recreate or a custom command). Approve and merge are pinned to the
 listed head commit, so a PR that changed since it was listed is not merged.
 `--read-only` disables all actions. Works on GitHub and GitLab (GitLab merge
 methods are merge and squash; write actions need a token with the `api` scope).
 
 Terminal keys: `j/k` move, `x` select, `*` select all, `f` status filter, `/`
 search, `o` organization, `u` author, `a` approve, `m` merge (`M` changes the
-method), `b` rebase comment, `c` comment, `enter` open, `r` refresh, `[`/`]`
+method), `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `[`/`]`
 provider.
 
 ![The bots terminal UI listing dependabot pull requests by repository](assets/screenshot-bots-tui.png)
