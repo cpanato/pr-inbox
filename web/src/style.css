@@ -273,3 +273,4 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .merge-conflicting { background: #fde8e6; color: #b3261e; }
 .bots-bar label { display: flex; gap: 6px; align-items: center; }
 .bots-bar input[type="checkbox"] { height: auto; padding: 0; }
+.bots-updated { align-self: center; color: #737c8a; font-size: 12px; }

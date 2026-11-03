@@ -157,7 +157,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
           </nav>
         )}
         <div className="page-heading"><div><p className="eyebrow">AUTOMATION PULL REQUESTS</p><h1>Bot PRs by repository</h1></div></div>
-        <form className="bots-form" onSubmit={(event) => { event.preventDefault(); void load(org, author); }}>
+        <form className="bots-form" onSubmit={(event) => { event.preventDefault(); void load(org, author, true); }}>
           <label>Organization
             <select
               value={customOrg ? otherOrg : org}
@@ -188,7 +188,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             </select>
           </label>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="repo or title" /></label>
-          <button className="refresh-button" type="submit" disabled={loading}>{loading ? "Loading…" : "Load"}</button>
+          <button className="refresh-button" type="submit" disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+          {listing && <span className="bots-updated">Updated {new Date(listing.fetchedAt).toLocaleTimeString()}</span>}
         </form>
 
         {error && <p className="error-notice" role="alert">{error}</p>}
