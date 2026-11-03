@@ -79,3 +79,27 @@ func TestBotPullRequestsAndActions(t *testing.T) {
 		t.Fatal("invalid org accepted")
 	}
 }
+
+func TestBotPullRequestsRetriesGatewayTimeout(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+
+	if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot"}, 10); err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+}

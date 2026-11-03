@@ -59,7 +59,7 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusNotFound, "unknown_provider", "No such provider supports bot pull requests.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	switch r.URL.Path {
 	case "/api/bots/orgs":
