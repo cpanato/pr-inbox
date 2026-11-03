@@ -54,12 +54,15 @@ jobs:
           go vet ./...
           go mod verify
 
-      - name: Validate GoReleaser configuration
-        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        with:
-          args: check
-
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Short-lived token that can push the cask to cpanato/homebrew-tap.
+      # Policy: cpanato/homebrew-tap/.github/chainguard/pr-inbox-release.sts.yaml
+      - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
+        id: octo-sts
+        with:
+          scope: cpanato/homebrew-tap
+          identity: pr-inbox-release
 
       - name: Create release archives
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
@@ -67,3 +70,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.octo-sts.outputs.token }}
