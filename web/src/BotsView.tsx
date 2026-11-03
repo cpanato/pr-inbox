@@ -17,7 +17,7 @@ type BotPR = {
   baseBranch: string;
 };
 type Listing = { org: string; author: string; items: BotPR[]; totalCount: number; incomplete: boolean; fetchedAt: string; mergeMethods: string[] };
-type ProviderInfo = { id: string; name: string; kind: string; viewer: string; botsAvailable?: boolean };
+type ProviderInfo = { id: string; name: string; kind: string; viewer: string; host?: string; botsAvailable?: boolean };
 type Props = { providers: ProviderInfo[]; csrfToken: string; readOnly: boolean };
 
 const authorPresets = ["dependabot", "renovate"];
@@ -144,14 +144,18 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         </a>
         <div className="account">
           {readOnly && <span className="mode-badge">Read-only</span>}
-          {available.length > 1 && (
-            <select aria-label="Provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-              {available.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          )}
         </div>
       </header>
       <main className="content">
+        {available.length > 1 && (
+          <nav className="providers" aria-label="Providers">
+            {available.map((item) => (
+              <button key={item.id} type="button" className={item.id === providerId ? "provider active" : "provider"} onClick={() => setProviderId(item.id)} title={item.host}>
+                {item.name}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="page-heading"><div><p className="eyebrow">AUTOMATION PULL REQUESTS</p><h1>Bot PRs by repository</h1></div></div>
         <form className="bots-form" onSubmit={(event) => { event.preventDefault(); void load(org, author); }}>
           <label>Organization
