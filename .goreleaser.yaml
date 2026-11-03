@@ -71,7 +71,7 @@ homebrew_casks:
     hooks:
       post:
         # The binaries aren't notarized; clear quarantine so macOS runs them.
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pr-inbox"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/pr-inbox"]
           end
