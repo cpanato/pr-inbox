@@ -180,6 +180,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.review(w, r)
 	case "/api/bots", "/api/bots/orgs", "/api/bots/action":
 		h.botsAPI(w, r)
+	case "/api/bots/jobs", "/api/bots/jobs/cancel":
+		h.botsJobsAPI(w, r)
 	case "/api/draft":
 		h.draft(w, r)
 	case "/api/preferences":
