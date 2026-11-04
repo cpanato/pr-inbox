@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +24,9 @@ type botManager interface {
 	Info() provider.Info
 	Orgs(context.Context) ([]string, error)
 	List(ctx context.Context, org, author string) (bots.Listing, error)
-	Act(ctx context.Context, id int64, action, method, body string) error
+	ListRepo(ctx context.Context, org, author, repo string) (bots.Listing, error)
+	Submit(ids []int64, action, method, body string) (bots.Job, error)
+	Job(id string) (bots.Job, error)
 }
 
 type botInputKind int
@@ -47,6 +51,29 @@ type botsOrgsMsg struct {
 	err  error
 }
 type botsOpenedMsg struct{ err error }
+type botsJobStartedMsg struct {
+	job bots.Job
+	err error
+}
+type botsJobMsg struct {
+	id  string
+	job bots.Job
+	err error
+}
+type botsRepoMsg struct {
+	repo    string
+	listing bots.Listing
+	err     error
+}
+
+const botsPollInterval = time.Second
+
+// botsJobState tracks what a running job has already applied to the list.
+type botsJobState struct {
+	action    string
+	applied   map[int64]bool
+	refreshed map[string]bool
+}
 
 type botsModel struct {
 	ctx      context.Context
@@ -60,6 +87,8 @@ type botsModel struct {
 	listing     *bots.Listing
 	loading     bool
 	err, notice string
+	rowState    map[int64]string
+	jobs        map[string]*botsJobState
 
 	cursor   int
 	selected map[int64]bool
@@ -98,7 +127,7 @@ func newBotsModel(ctx context.Context, services []botManager, readOnly bool, ope
 	input := textinput.New()
 	input.CharLimit = 1024
 	input.Blur()
-	return &botsModel{ctx: ctx, services: services, readOnly: readOnly, opener: opener, author: "dependabot", selected: map[int64]bool{}, input: input, width: 80, height: 28}
+	return &botsModel{ctx: ctx, services: services, readOnly: readOnly, opener: opener, author: "dependabot", selected: map[int64]bool{}, rowState: map[int64]string{}, jobs: map[string]*botsJobState{}, input: input, width: 80, height: 28}
 }
 
 func (m *botsModel) Init() tea.Cmd { return m.loadOrgs() }
@@ -173,34 +202,106 @@ func (m *botsModel) targets() []provider.BotPullRequest {
 }
 
 func (m *botsModel) act(action, body string) tea.Cmd {
-	targets := m.targets()
+	targets := []provider.BotPullRequest{}
+	for _, pr := range m.targets() {
+		if m.rowState[pr.ID] != "" || (action == bots.ActionApprove && pr.ReviewState == provider.ReviewApproved) {
+			continue
+		}
+		targets = append(targets, pr)
+	}
 	if len(targets) == 0 {
+		m.notice = "Nothing to do: the selection is already approved or busy."
 		return nil
 	}
 	method := ""
 	if m.listing != nil && len(m.listing.MergeMethods) > 0 {
 		method = m.listing.MergeMethods[m.method%len(m.listing.MergeMethods)]
 	}
-	m.loading = true
-	m.notice = fmt.Sprintf("Running %s on %d item(s)…", action, len(targets))
-	service, root := m.services[m.active], m.ctx
-	org, author := m.org, m.author
+	ids := make([]int64, len(targets))
+	for i, pr := range targets {
+		ids[i] = pr.ID
+		m.rowState[pr.ID] = bots.StatusQueued
+	}
+	m.notice = fmt.Sprintf("Started %s on %d item(s)…", action, len(targets))
+	service := m.services[m.active]
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(root, 3*time.Minute)
+		job, err := service.Submit(ids, action, method, body)
+		return botsJobStartedMsg{job: job, err: err}
+	}
+}
+
+func (m *botsModel) poll(id string) tea.Cmd {
+	service := m.services[m.active]
+	return tea.Tick(botsPollInterval, func(time.Time) tea.Msg {
+		job, err := service.Job(id)
+		return botsJobMsg{id: id, job: job, err: err}
+	})
+}
+
+func (m *botsModel) refreshRepo(repo string) tea.Cmd {
+	service, root, org, author := m.services[m.active], m.ctx, m.org, m.author
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(root, 45*time.Second)
 		defer cancel()
-		failures := []string{}
-		for _, pr := range targets {
-			if err := service.Act(ctx, pr.ID, action, method, body); err != nil {
-				failures = append(failures, fmt.Sprintf("%s#%d: %v", pr.Repo, pr.Number, err))
+		listing, err := service.ListRepo(ctx, org, author, repo)
+		return botsRepoMsg{repo: repo, listing: listing, err: err}
+	}
+}
+
+// applyJob reflects finished items right away and returns the commands that
+// reload only the repositories whose work is complete.
+func (m *botsModel) applyJob(msg botsJobMsg) tea.Cmd {
+	state := m.jobs[msg.id]
+	if state == nil || m.listing == nil {
+		return nil
+	}
+	gone := map[int64]bool{}
+	remaining := map[string]int{}
+	repos := []string{}
+	for _, item := range msg.job.Items {
+		switch item.Status {
+		case bots.StatusQueued, bots.StatusRunning:
+			m.rowState[item.ID] = item.Status
+			remaining[item.Repo]++
+		default:
+			delete(m.rowState, item.ID)
+			if item.Status == bots.StatusDone && !state.applied[item.ID] {
+				state.applied[item.ID] = true
+				if state.action == bots.ActionMerge {
+					gone[item.ID] = true
+				}
+				for i := range m.listing.Items {
+					if m.listing.Items[i].ID == item.ID && state.action == bots.ActionApprove {
+						m.listing.Items[i].ReviewState = provider.ReviewApproved
+					}
+				}
 			}
 		}
-		notice := fmt.Sprintf("%s: %d ok, %d failed", action, len(targets)-len(failures), len(failures))
-		if len(failures) > 0 {
-			notice += " — " + failures[0]
+		if !slices.Contains(repos, item.Repo) {
+			repos = append(repos, item.Repo)
 		}
-		listing, err := service.List(ctx, org, author)
-		return botsLoadedMsg{listing: listing, err: err, notice: notice}
 	}
+	if len(gone) > 0 {
+		kept := m.listing.Items[:0]
+		for _, pr := range m.listing.Items {
+			if !gone[pr.ID] {
+				kept = append(kept, pr)
+			}
+		}
+		m.listing.Items = kept
+		for id := range gone {
+			delete(m.selected, id)
+		}
+		m.clamp()
+	}
+	cmds := []tea.Cmd{}
+	for _, repo := range repos {
+		if remaining[repo] == 0 && !state.refreshed[repo] {
+			state.refreshed[repo] = true
+			cmds = append(cmds, m.refreshRepo(repo))
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *botsModel) startInput(kind botInputKind, value, prompt string) tea.Cmd {
@@ -243,6 +344,75 @@ func (m *botsModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.clamp()
+	case botsJobStartedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			for id, state := range m.rowState {
+				if state == bots.StatusQueued {
+					delete(m.rowState, id)
+				}
+			}
+			return m, nil
+		}
+		m.err = ""
+		m.jobs[msg.job.ID] = &botsJobState{action: msg.job.Action, applied: map[int64]bool{}, refreshed: map[string]bool{}}
+		return m, tea.Batch(m.applyJob(botsJobMsg{id: msg.job.ID, job: msg.job}), m.poll(msg.job.ID))
+	case botsJobMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			delete(m.jobs, msg.id)
+			return m, nil
+		}
+		cmd := m.applyJob(msg)
+		if msg.job.Finished {
+			failed, done := []string{}, 0
+			for _, item := range msg.job.Items {
+				if item.Status == bots.StatusDone {
+					done++
+				} else if item.Status == bots.StatusFailed {
+					failed = append(failed, fmt.Sprintf("%s#%d: %s", item.Repo, item.Number, item.Error))
+				}
+			}
+			m.notice = fmt.Sprintf("%s: %d ok, %d failed", msg.job.Action, done, len(failed))
+			if len(failed) > 0 {
+				m.notice += " — " + failed[0]
+			}
+			delete(m.jobs, msg.id)
+			return m, cmd
+		}
+		return m, tea.Batch(cmd, m.poll(msg.id))
+	case botsRepoMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		if m.listing != nil && msg.listing.Org == m.org {
+			items := []provider.BotPullRequest{}
+			for _, pr := range m.listing.Items {
+				if pr.Repo != msg.repo {
+					items = append(items, pr)
+				}
+			}
+			m.listing.Items = append(items, msg.listing.Items...)
+			sort.SliceStable(m.listing.Items, func(i, j int) bool {
+				a, b := m.listing.Items[i], m.listing.Items[j]
+				if a.Repo != b.Repo {
+					return a.Repo < b.Repo
+				}
+				return a.CreatedAt.Before(b.CreatedAt)
+			})
+			m.listing.FetchedAt = msg.listing.FetchedAt
+			present := map[int64]bool{}
+			for _, pr := range m.listing.Items {
+				present[pr.ID] = true
+			}
+			for id := range m.selected {
+				if !present[id] {
+					delete(m.selected, id)
+				}
+			}
+			m.clamp()
+		}
 	case botsOpenedMsg:
 		if msg.err != nil {
 			m.notice = "Could not open browser: " + msg.err.Error()
@@ -512,7 +682,14 @@ func (m *botsModel) View() tea.View {
 		} else {
 			merge = amber.Render(merge)
 		}
-		body = append(body, clip(fmt.Sprintf("%s%s #%d %s  %s  %s  %s", mark, box, pr.Number, safe(pr.Title), ci, merge, muted.Render(strings.ReplaceAll(pr.ReviewState, "_", " ")))))
+		review := muted.Render(strings.ReplaceAll(pr.ReviewState, "_", " "))
+		if pr.ReviewState == provider.ReviewApproved {
+			review = green.Render("✓ approved")
+		}
+		if state := m.rowState[pr.ID]; state != "" {
+			review = amber.Render(state)
+		}
+		body = append(body, clip(fmt.Sprintf("%s%s #%d %s  %s  %s  %s", mark, box, pr.Number, safe(pr.Title), ci, merge, review)))
 	}
 	room := max(3, m.height-len(lines)-6)
 	start := 0

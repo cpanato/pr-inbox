@@ -321,9 +321,14 @@ author (`dependabot`, `renovate` or any login) and a status filter in the
 interface. Open PRs are grouped by repository with CI status, mergeability
 (conflicts are highlighted) and review state. Select PRs individually, per
 repository or all at once, then **Approve**, **Merge** (with a confirmation
-and a merge method) or **Comment** (for example `@dependabot rebase`; conflicting PRs get an "Ask… to"
+and a merge method) or **Comment** (for example `@dependabot rebase`; every PR has an "Ask… to"
 menu with Rebase, Recreate or a custom command). Approve and merge are pinned to the
 listed head commit, so a PR that changed since it was listed is not merged.
+Actions run as background jobs (different repositories in parallel, one PR at a
+time within a repository), so the interface never blocks: each row shows
+Queued, Working or Failed, queued items can be cancelled, and only the affected
+repositories are refreshed. Already approved PRs are marked and not approved
+again. Repositories can be collapsed and refreshed individually with ↻.
 `--read-only` disables all actions. Works on GitHub and GitLab (GitLab merge
 methods are merge and squash; write actions need a token with the `api` scope).
 
