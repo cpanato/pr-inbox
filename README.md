@@ -328,7 +328,9 @@ Actions run as background jobs (different repositories in parallel, one PR at a
 time within a repository), so the interface never blocks: each row shows
 Queued, Working or Failed, queued items can be cancelled, and only the affected
 repositories are refreshed. Already approved PRs are marked and not approved
-again. Repositories can be collapsed and refreshed individually with ↻.
+again. When several PRs of one repository are merged in a batch, each one after
+the first is re-read first and skipped if it now has conflicts or new commits.
+Repositories can be collapsed and refreshed individually with ↻.
 Large organizations are paged by repository (5 per page, with a repository
 search); if GitHub times out, the PRs loaded so far are shown.
 `--read-only` disables all actions. Works on GitHub and GitLab (GitLab merge
