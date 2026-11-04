@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -210,7 +211,17 @@ func (p *Provider) BotApprove(ctx context.Context, pr provider.BotPullRequest) e
 	if err != nil || pr.HeadSHA == "" {
 		return provider.ErrBotInvalid
 	}
-	return p.client.send(ctx, http.MethodPost, path, map[string]string{"commit_id": pr.HeadSHA, "event": "APPROVE"})
+	payload := map[string]string{"commit_id": pr.HeadSHA, "event": "APPROVE"}
+	var err2 error
+	for attempt := 0; attempt < writeAttempts; attempt++ {
+		if attempt > 0 && !sleepContext(ctx, time.Duration(attempt)*writeRetryDelay) {
+			return err2
+		}
+		if err2 = p.client.send(ctx, http.MethodPost, path, payload); err2 == nil || !isServerError(err2) {
+			return err2
+		}
+	}
+	return err2
 }
 
 func (p *Provider) BotMerge(ctx context.Context, pr provider.BotPullRequest, method string) error {
@@ -224,7 +235,54 @@ func (p *Provider) BotMerge(ctx context.Context, pr provider.BotPullRequest, met
 		return provider.ErrBotInvalid
 	}
 	// sha makes GitHub refuse the merge if the branch moved after listing.
-	return p.client.send(ctx, http.MethodPut, path, map[string]string{"sha": pr.HeadSHA, "merge_method": method})
+	payload := map[string]string{"sha": pr.HeadSHA, "merge_method": method}
+	var err2 error
+	for attempt := 0; attempt < writeAttempts; attempt++ {
+		if attempt > 0 {
+			if !sleepContext(ctx, time.Duration(attempt)*writeRetryDelay) {
+				return err2
+			}
+		}
+		err2 = p.client.send(ctx, http.MethodPut, path, payload)
+		if err2 == nil || !isServerError(err2) {
+			return err2
+		}
+		// GitHub sometimes answers 5xx after the merge went through.
+		var state struct {
+			Merged bool `json:"merged"`
+		}
+		pullPath := strings.TrimSuffix(path, "/merge")
+		if p.client.get(ctx, pullPath, nil, &state) == nil && state.Merged {
+			return nil
+		}
+	}
+	return err2
+}
+
+const (
+	writeAttempts   = 3
+	writeRetryDelay = time.Second
+)
+
+type statusError struct {
+	status  int
+	message string
+}
+
+func (e *statusError) Error() string { return e.message }
+
+func isServerError(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.status >= 500
+}
+
+func sleepContext(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
 
 func (p *Provider) BotComment(ctx context.Context, pr provider.BotPullRequest, body string) error {
@@ -267,5 +325,5 @@ func (c *Client) send(ctx context.Context, method, path string, payload any) err
 	if message == "" {
 		message = http.StatusText(response.StatusCode)
 	}
-	return fmt.Errorf("GitHub rejected the request (%d): %s", response.StatusCode, message)
+	return &statusError{status: response.StatusCode, message: fmt.Sprintf("GitHub rejected the request (%d): %s", response.StatusCode, message)}
 }

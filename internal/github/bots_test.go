@@ -103,3 +103,55 @@ func TestBotPullRequestsRetriesGatewayTimeout(t *testing.T) {
 		t.Fatalf("calls = %d, want 3", calls)
 	}
 }
+
+func TestBotMergeSucceedsWhenGitHubAnswers502AfterMerging(t *testing.T) {
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut:
+			puts++
+			w.WriteHeader(http.StatusBadGateway)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/pulls/7"):
+			_, _ = w.Write([]byte(`{"merged":true}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+	pr := provider.BotPullRequest{PullRequest: provider.PullRequest{Number: 7, Repo: "acme/api"}, HeadSHA: "abc"}
+	if err := p.BotMerge(context.Background(), pr, provider.MergeMethodSquash); err != nil {
+		t.Fatalf("expected merged PR to count as success, got %v", err)
+	}
+	if puts != 1 {
+		t.Fatalf("puts = %d, want 1 (no retry once merged)", puts)
+	}
+}
+
+func TestBotMergeRetriesServerErrors(t *testing.T) {
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			puts++
+			if puts < 2 {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			_, _ = w.Write([]byte(`{"merged":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"merged":false}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+	pr := provider.BotPullRequest{PullRequest: provider.PullRequest{Number: 7, Repo: "acme/api"}, HeadSHA: "abc"}
+	if err := p.BotMerge(context.Background(), pr, provider.MergeMethodSquash); err != nil || puts != 2 {
+		t.Fatalf("err=%v puts=%d", err, puts)
+	}
+}
