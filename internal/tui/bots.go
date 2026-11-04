@@ -23,8 +23,8 @@ import (
 type botManager interface {
 	Info() provider.Info
 	Orgs(context.Context) ([]string, error)
-	List(ctx context.Context, org, author string) (bots.Listing, error)
-	ListRepo(ctx context.Context, org, author, repo string) (bots.Listing, error)
+	Repos(ctx context.Context, org, author string) (bots.RepoListing, error)
+	ListRepos(ctx context.Context, org, author string, repos []string) (bots.Listing, error)
 	Submit(ids []int64, action, method, body string) (bots.Job, error)
 	Job(id string) (bots.Job, error)
 }
@@ -43,9 +43,15 @@ var botStatusFilters = []string{"all", "ready", "conflicts", "failing"}
 
 type botsLoadedMsg struct {
 	listing bots.Listing
+	index   *bots.RepoListing
+	page    int
 	err     error
 	notice  string
 }
+
+// botsRepoPageSize repositories load their heavy details at a time.
+const botsRepoPageSize = 5
+
 type botsOrgsMsg struct {
 	orgs []string
 	err  error
@@ -85,6 +91,8 @@ type botsModel struct {
 	org, author string
 	orgs        []string
 	listing     *bots.Listing
+	index       *bots.RepoListing
+	page        int
 	loading     bool
 	err, notice string
 	rowState    map[int64]string
@@ -142,17 +150,39 @@ func (m *botsModel) loadOrgs() tea.Cmd {
 	}
 }
 
-func (m *botsModel) load(notice string) tea.Cmd {
+func (m *botsModel) load(notice string) tea.Cmd { return m.loadAt(notice, 0, nil) }
+
+// loadAt loads one page of repositories. A nil index is fetched first, which
+// is the cheap overview; only the page's repositories load CI and review data.
+func (m *botsModel) loadAt(notice string, page int, index *bots.RepoListing) tea.Cmd {
 	if m.org == "" || m.author == "" {
 		return nil
 	}
 	m.loading = true
 	service, root, org, author := m.services[m.active], m.ctx, m.org, m.author
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(root, 45*time.Second)
+		ctx, cancel := context.WithTimeout(root, 2*time.Minute)
 		defer cancel()
-		listing, err := service.List(ctx, org, author)
-		return botsLoadedMsg{listing: listing, err: err, notice: notice}
+		if index == nil {
+			fetched, err := service.Repos(ctx, org, author)
+			if err != nil {
+				return botsLoadedMsg{err: err}
+			}
+			index = &fetched
+		}
+		page = max(0, min(page, (len(index.Repos)-1)/botsRepoPageSize))
+		names := []string{}
+		for _, repo := range index.Repos[min(len(index.Repos), page*botsRepoPageSize):min(len(index.Repos), (page+1)*botsRepoPageSize)] {
+			names = append(names, repo.Repo)
+		}
+		listing := bots.Listing{Org: org, Author: author, Items: []provider.BotPullRequest{}, FetchedAt: time.Now().UTC()}
+		if len(names) > 0 {
+			var err error
+			if listing, err = service.ListRepos(ctx, org, author, names); err != nil {
+				return botsLoadedMsg{err: err}
+			}
+		}
+		return botsLoadedMsg{listing: listing, index: index, page: page, notice: notice}
 	}
 }
 
@@ -243,7 +273,7 @@ func (m *botsModel) refreshRepo(repo string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(root, 45*time.Second)
 		defer cancel()
-		listing, err := service.ListRepo(ctx, org, author, repo)
+		listing, err := service.ListRepos(ctx, org, author, []string{repo})
 		return botsRepoMsg{repo: repo, listing: listing, err: err}
 	}
 }
@@ -334,6 +364,7 @@ func (m *botsModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err, m.notice = "", msg.notice
 		m.listing = &msg.listing
+		m.index, m.page = msg.index, msg.page
 		present := map[int64]bool{}
 		for _, pr := range msg.listing.Items {
 			present[pr.ID] = true
@@ -550,7 +581,22 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		clear(m.selected)
 		return m, m.loadOrgs()
 	case "r":
-		return m, m.load("Refreshed.")
+		return m, m.loadAt("Refreshed.", m.page, nil)
+	case "n", "p":
+		if m.index == nil || m.loading {
+			return m, nil
+		}
+		step := 1
+		if msg.String() == "p" {
+			step = -1
+		}
+		next := m.page + step
+		if next < 0 || next*botsRepoPageSize >= len(m.index.Repos) {
+			return m, nil
+		}
+		m.cursor = 0
+		clear(m.selected)
+		return m, m.loadAt("", next, m.index)
 	case "enter", "w":
 		if m.cursor < len(items) {
 			pr := items[m.cursor]
@@ -640,6 +686,10 @@ func (m *botsModel) View() tea.View {
 		clip(accent.Render("Bot PRs") + muted.Render(fmt.Sprintf("  %s · org %s · author %s · status %s · merge %s", info.Name, safe(m.org), safe(m.author), botStatusFilters[m.filter], m.methodName()))),
 		"",
 	}
+	if m.index != nil && len(m.index.Repos) > botsRepoPageSize {
+		pages := (len(m.index.Repos) + botsRepoPageSize - 1) / botsRepoPageSize
+		lines[1] = muted.Render(fmt.Sprintf("Page %d/%d · %d PR(s) in %d repo(s) · n next · p previous", m.page+1, pages, m.index.Total, len(m.index.Repos)))
+	}
 	items := m.visible()
 	switch {
 	case m.loading && m.listing == nil:
@@ -713,7 +763,7 @@ func (m *botsModel) View() tea.View {
 		footer = append(footer, amber.Render(m.confirm))
 	default:
 		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · [ ] provider")))
-		footer = append(footer, muted.Render(clip("a approve · m merge · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
+		footer = append(footer, muted.Render(clip("a approve · m merge · n/p page · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
 	}
 	for len(lines)+len(footer) < m.height {
 		lines = append(lines, "")

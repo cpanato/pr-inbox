@@ -37,7 +37,7 @@ func TestActOnlyListedItems(t *testing.T) {
 	}
 }
 
-func TestListRepoReplacesOnlyThatRepo(t *testing.T) {
+func TestListReposReplacesOnlyThoseRepos(t *testing.T) {
 	d := demo.New()
 	s := New(d.Info(), d)
 	ctx := context.Background()
@@ -47,7 +47,7 @@ func TestListRepoReplacesOnlyThatRepo(t *testing.T) {
 	if err := s.Act(ctx, 305, ActionMerge, "squash", ""); err != nil {
 		t.Fatal(err)
 	}
-	listing, err := s.ListRepo(ctx, "acme", "dependabot", "acme/infra")
+	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/infra"})
 	if err != nil || len(listing.Items) != 0 {
 		t.Fatalf("listing=%+v err=%v", listing, err)
 	}
@@ -57,7 +57,7 @@ func TestListRepoReplacesOnlyThatRepo(t *testing.T) {
 	if err := s.Act(ctx, 303, ActionApprove, "", ""); err != nil {
 		t.Fatalf("other repos must stay actionable, got %v", err)
 	}
-	if _, err := s.ListRepo(ctx, "acme", "dependabot", ""); err == nil {
+	if _, err := s.ListRepos(ctx, "acme", "dependabot", nil); err == nil {
 		t.Fatal("empty repo should be rejected")
 	}
 }
@@ -128,5 +128,37 @@ func TestCancelJobSkipsQueuedItems(t *testing.T) {
 	job = waitJob(t, s, job.ID)
 	if job.Items[0].Status != StatusCancelled {
 		t.Fatalf("status = %q", job.Items[0].Status)
+	}
+}
+
+func TestReposIndexAndPagedListing(t *testing.T) {
+	d := demo.New()
+	s := New(d.Info(), d)
+	ctx := context.Background()
+	index, err := s.Repos(ctx, "acme", "dependabot")
+	if err != nil || len(index.Repos) == 0 || index.Total == 0 {
+		t.Fatalf("index=%+v err=%v", index, err)
+	}
+	if _, err := s.Repos(ctx, "", "dependabot"); err == nil {
+		t.Fatal("empty org should be rejected")
+	}
+	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/api", "acme/web"})
+	if err != nil || len(listing.Items) < 2 {
+		t.Fatalf("listing=%+v err=%v", listing, err)
+	}
+	for _, item := range listing.Items {
+		if item.Repo != "acme/api" && item.Repo != "acme/web" {
+			t.Fatalf("unexpected repo %s", item.Repo)
+		}
+	}
+	if err := s.Act(ctx, 303, ActionApprove, "", ""); err != nil {
+		t.Fatalf("paged item must be actionable: %v", err)
+	}
+	tooMany := make([]string, 11)
+	for i := range tooMany {
+		tooMany[i] = "acme/r"
+	}
+	if _, err := s.ListRepos(ctx, "acme", "dependabot", tooMany); err == nil {
+		t.Fatal("too many repos should be rejected")
 	}
 }

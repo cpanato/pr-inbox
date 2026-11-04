@@ -99,21 +99,60 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 	}, nil
 }
 
-// ListRepo lists the bot pull requests of a single repository and replaces
-// only that repository's remembered items, so refreshing one repo never
-// touches the rest of the list.
-func (s *Service) ListRepo(ctx context.Context, org, author, repo string) (Listing, error) {
-	org, author, repo = strings.TrimSpace(org), strings.TrimSpace(author), strings.TrimSpace(repo)
-	if org == "" || author == "" || repo == "" {
+// RepoListing is the cheap per-repository overview of an organization.
+type RepoListing struct {
+	Org        string             `json:"org"`
+	Author     string             `json:"author"`
+	Repos      []provider.BotRepo `json:"repos"`
+	Total      int                `json:"total"`
+	Incomplete bool               `json:"incomplete"`
+	FetchedAt  time.Time          `json:"fetchedAt"`
+}
+
+// Repos lists which repositories have open PRs, without CI or review details,
+// so a huge organization can be paged through a few repositories at a time.
+func (s *Service) Repos(ctx context.Context, org, author string) (RepoListing, error) {
+	org, author = strings.TrimSpace(org), strings.TrimSpace(author)
+	if org == "" || author == "" {
+		return RepoListing{}, errors.New("choose an organization and an author")
+	}
+	result, err := s.p.BotRepos(ctx, provider.BotQuery{Org: org, Author: author})
+	if err != nil {
+		return RepoListing{}, err
+	}
+	total := 0
+	for _, repo := range result.Repos {
+		total += repo.Count
+	}
+	if result.Repos == nil {
+		result.Repos = []provider.BotRepo{}
+	}
+	return RepoListing{Org: org, Author: author, Repos: result.Repos, Total: total, Incomplete: result.Incomplete, FetchedAt: time.Now().UTC()}, nil
+}
+
+// ListRepos lists the bot pull requests of a few repositories and replaces
+// only those repositories' remembered items, so loading a page or refreshing
+// one repo never touches the rest.
+func (s *Service) ListRepos(ctx context.Context, org, author string, repos []string) (Listing, error) {
+	org, author = strings.TrimSpace(org), strings.TrimSpace(author)
+	if org == "" || author == "" || len(repos) == 0 {
 		return Listing{}, errors.New("choose an organization, an author and a repository")
 	}
-	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Repo: repo}, listLimit)
+	if len(repos) > provider.MaxBotRepos {
+		return Listing{}, fmt.Errorf("at most %d repositories per request", provider.MaxBotRepos)
+	}
+	wanted := make(map[string]bool, len(repos))
+	for i, repo := range repos {
+		repos[i] = strings.TrimSpace(repo)
+		wanted[repos[i]] = true
+	}
+	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Repos: repos}, listLimit)
 	if err != nil {
 		return Listing{}, err
 	}
 	s.mu.Lock()
 	for id, item := range s.listed {
-		if item.Repo == repo {
+		if wanted[item.Repo] {
 			delete(s.listed, id)
 		}
 	}
@@ -121,6 +160,12 @@ func (s *Service) ListRepo(ctx context.Context, org, author, repo string) (Listi
 		s.listed[item.ID] = item
 	}
 	s.mu.Unlock()
+	sort.SliceStable(result.Items, func(i, j int) bool {
+		if result.Items[i].Repo != result.Items[j].Repo {
+			return result.Items[i].Repo < result.Items[j].Repo
+		}
+		return result.Items[i].CreatedAt.Before(result.Items[j].CreatedAt)
+	})
 	return Listing{
 		Org: org, Author: author, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
 		FetchedAt: time.Now().UTC(), MergeMethods: s.p.MergeMethods(),

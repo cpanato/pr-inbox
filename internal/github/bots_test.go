@@ -168,14 +168,14 @@ func TestBotPullRequestsRepoScope(t *testing.T) {
 	client.baseURL = server.URL
 	client.httpClient = server.Client()
 	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
-	if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repo: "acme/api"}, 10); err != nil {
+	if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repos: []string{"acme/api", "acme/web"}}, 10); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(query, "repo:acme/api") || strings.Contains(query, "org:acme") {
+	if !strings.Contains(query, "repo:acme/api repo:acme/web") || strings.Contains(query, "org:acme") {
 		t.Fatalf("query should be scoped to the repo: %s", query)
 	}
 	for _, bad := range []string{"other/api", "acme/a b", "acme", "acme/x y"} {
-		if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repo: bad}, 10); err == nil {
+		if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repos: []string{bad}}, 10); err == nil {
 			t.Errorf("repo %q should be rejected", bad)
 		}
 	}
@@ -196,5 +196,30 @@ func TestBotReviewStateFallsBackToLatestReviews(t *testing.T) {
 	}
 	if got := botReviewState("", nil); got != provider.ReviewNone {
 		t.Fatalf("no reviews = %q", got)
+	}
+}
+
+func TestBotReposCountsPerRepository(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(data), "org:acme") {
+			t.Errorf("query not scoped to the org: %s", data)
+		}
+		_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":3,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"repository":{"nameWithOwner":"acme/web"}},{"repository":{"nameWithOwner":"acme/api"}},{"repository":{"nameWithOwner":"acme/web"}}]}}}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+	result, err := p.BotRepos(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot"})
+	if err != nil || result.Incomplete || len(result.Repos) != 2 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if result.Repos[0] != (provider.BotRepo{Repo: "acme/api", Count: 1}) || result.Repos[1] != (provider.BotRepo{Repo: "acme/web", Count: 2}) {
+		t.Fatalf("unexpected counts: %+v", result.Repos)
+	}
+	if _, err := p.BotRepos(context.Background(), provider.BotQuery{Org: "bad org", Author: "dependabot"}); err == nil {
+		t.Fatal("invalid org should be rejected")
 	}
 }

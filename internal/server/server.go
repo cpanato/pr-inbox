@@ -178,7 +178,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.inbox(w, r, true)
 	case "/api/review", "/api/review/prepare", "/api/review/submit", "/api/review/reconcile":
 		h.review(w, r)
-	case "/api/bots", "/api/bots/orgs", "/api/bots/action":
+	case "/api/bots", "/api/bots/orgs", "/api/bots/repos", "/api/bots/action":
 		h.botsAPI(w, r)
 	case "/api/bots/jobs", "/api/bots/jobs/cancel":
 		h.botsJobsAPI(w, r)

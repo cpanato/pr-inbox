@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -53,45 +54,55 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 		"state": {"opened"}, "scope": {"all"}, "order_by": {"created_at"}, "sort": {"asc"},
 		"per_page": {strconv.Itoa(pageSize)}, "include_subgroups": {"true"}, "author_username": {author},
 	}
-	path := "/groups/" + url.PathEscape(query.Org) + "/merge_requests"
-	if query.Repo != "" {
-		if !strings.HasPrefix(query.Repo, query.Org+"/") || strings.Contains(query.Repo, "..") || !validGroup(query.Repo) {
-			return provider.BotResult{}, fmt.Errorf("invalid project %q", query.Repo)
+	paths := []string{"/groups/" + url.PathEscape(query.Org) + "/merge_requests"}
+	if len(query.Repos) > 0 {
+		if len(query.Repos) > provider.MaxBotRepos {
+			return provider.BotResult{}, fmt.Errorf("at most %d repositories per request", provider.MaxBotRepos)
 		}
-		path = "/projects/" + url.PathEscape(query.Repo) + "/merge_requests"
+		paths = paths[:0]
+		for _, repo := range query.Repos {
+			if !strings.HasPrefix(repo, query.Org+"/") || strings.Contains(repo, "..") || !validGroup(repo) {
+				return provider.BotResult{}, fmt.Errorf("invalid project %q", repo)
+			}
+			paths = append(paths, "/projects/"+url.PathEscape(repo)+"/merge_requests")
+		}
 	}
 	result := provider.BotResult{}
-	for page := 1; len(result.Items) < limit; page++ {
-		values.Set("page", strconv.Itoa(page))
-		var batch []botMergeRequest
-		header, err := p.client.get(ctx, path, values, &batch)
-		if err != nil {
-			return provider.BotResult{}, err
-		}
-		if total, err := strconv.Atoi(header.Get("X-Total")); err == nil {
-			result.TotalCount = total
-		}
-		for _, mr := range batch {
-			if len(result.Items) == limit {
+	for _, path := range paths {
+		total := 0
+		for page := 1; len(result.Items) < limit; page++ {
+			values.Set("page", strconv.Itoa(page))
+			var batch []botMergeRequest
+			header, err := p.client.get(ctx, path, values, &batch)
+			if err != nil {
+				return provider.BotResult{}, err
+			}
+			if n, err := strconv.Atoi(header.Get("X-Total")); err == nil {
+				total = n
+			}
+			for _, mr := range batch {
+				if len(result.Items) == limit {
+					break
+				}
+				draft := mr.Draft
+				result.Items = append(result.Items, provider.BotPullRequest{
+					PullRequest: provider.PullRequest{
+						ID: mr.ID, Number: mr.IID, Title: mr.Title, HTMLURL: mr.WebURL,
+						Repo: repoPath(mr.References.Full), Author: mr.Author.Username,
+						CreatedAt: mr.CreatedAt, UpdatedAt: mr.UpdatedAt, Draft: &draft,
+					},
+					HeadSHA: mr.SHA, Mergeable: mergeStatus(mr), ReviewState: provider.ReviewNone,
+					Branch: mr.SourceBranch, BaseBranch: mr.TargetBranch,
+				})
+				p.client.mu.Lock()
+				p.client.projects[mr.ID] = mr.ProjectID
+				p.client.mu.Unlock()
+			}
+			if len(batch) < pageSize || header.Get("X-Next-Page") == "" {
 				break
 			}
-			draft := mr.Draft
-			result.Items = append(result.Items, provider.BotPullRequest{
-				PullRequest: provider.PullRequest{
-					ID: mr.ID, Number: mr.IID, Title: mr.Title, HTMLURL: mr.WebURL,
-					Repo: repoPath(mr.References.Full), Author: mr.Author.Username,
-					CreatedAt: mr.CreatedAt, UpdatedAt: mr.UpdatedAt, Draft: &draft,
-				},
-				HeadSHA: mr.SHA, Mergeable: mergeStatus(mr), ReviewState: provider.ReviewNone,
-				Branch: mr.SourceBranch, BaseBranch: mr.TargetBranch,
-			})
-			p.client.mu.Lock()
-			p.client.projects[mr.ID] = mr.ProjectID
-			p.client.mu.Unlock()
 		}
-		if len(batch) < pageSize || header.Get("X-Next-Page") == "" {
-			break
-		}
+		result.TotalCount += total
 	}
 	if result.TotalCount < len(result.Items) {
 		result.TotalCount = len(result.Items)
@@ -111,6 +122,48 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 		result.Items[i].CI = status
 	}
 	return result, nil
+}
+
+// BotRepos counts open merge requests per project from the group listing.
+func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provider.BotRepoResult, error) {
+	if !validGroup(query.Org) {
+		return provider.BotRepoResult{}, fmt.Errorf("invalid group name %q", query.Org)
+	}
+	author := strings.TrimSuffix(strings.TrimSpace(query.Author), "[bot]")
+	if !usernamePattern.MatchString(author) {
+		return provider.BotRepoResult{}, fmt.Errorf("invalid author %q", query.Author)
+	}
+	values := url.Values{
+		"state": {"opened"}, "scope": {"all"}, "per_page": {strconv.Itoa(pageSize)},
+		"include_subgroups": {"true"}, "author_username": {author},
+	}
+	counts := map[string]int{}
+	incomplete := false
+	for page := 1; page <= 10; page++ {
+		values.Set("page", strconv.Itoa(page))
+		var batch []botMergeRequest
+		header, err := p.client.get(ctx, "/groups/"+url.PathEscape(query.Org)+"/merge_requests", values, &batch)
+		if err != nil {
+			if len(counts) == 0 {
+				return provider.BotRepoResult{}, err
+			}
+			incomplete = true
+			break
+		}
+		for _, mr := range batch {
+			counts[repoPath(mr.References.Full)]++
+		}
+		if len(batch) < pageSize || header.Get("X-Next-Page") == "" {
+			break
+		}
+		incomplete = page == 10
+	}
+	repos := make([]provider.BotRepo, 0, len(counts))
+	for repo, count := range counts {
+		repos = append(repos, provider.BotRepo{Repo: repo, Count: count})
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].Repo < repos[j].Repo })
+	return provider.BotRepoResult{Repos: repos, Incomplete: incomplete}, nil
 }
 
 func (p *Provider) BotOrgs(ctx context.Context) ([]string, error) {

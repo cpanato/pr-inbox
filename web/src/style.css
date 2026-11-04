@@ -285,3 +285,4 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .job-label { border-radius: 999px; padding: 2px 8px; font-size: 12px; background: #fff4d6; color: #8a5a00; }
 .job-label.job-failed { background: #ffe3e3; color: #b42318; }
 .bots-working { color: #8a5a00; }
+.bots-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; color: #596273; font-size: 13px; }

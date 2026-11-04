@@ -2,6 +2,8 @@ package demo
 
 import (
 	"context"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +64,7 @@ func (c *Client) BotPullRequests(_ context.Context, q provider.BotQuery, limit i
 	defer s.mu.Unlock()
 	out := []provider.BotPullRequest{}
 	for _, pr := range s.items {
-		if q.Repo != "" && pr.Repo != q.Repo {
+		if len(q.Repos) > 0 && !slices.Contains(q.Repos, pr.Repo) {
 			continue
 		}
 		if strings.HasPrefix(pr.Repo, strings.ToLower(q.Org)+"/") && strings.HasPrefix(strings.ToLower(q.Author), "dependabot") {
@@ -70,6 +72,23 @@ func (c *Client) BotPullRequests(_ context.Context, q provider.BotQuery, limit i
 		}
 	}
 	return provider.BotResult{Items: out, TotalCount: len(out)}, nil
+}
+
+func (c *Client) BotRepos(ctx context.Context, q provider.BotQuery) (provider.BotRepoResult, error) {
+	result, err := c.BotPullRequests(ctx, provider.BotQuery{Org: q.Org, Author: q.Author}, 1000)
+	if err != nil {
+		return provider.BotRepoResult{}, err
+	}
+	counts := map[string]int{}
+	for _, pr := range result.Items {
+		counts[pr.Repo]++
+	}
+	repos := []provider.BotRepo{}
+	for repo, count := range counts {
+		repos = append(repos, provider.BotRepo{Repo: repo, Count: count})
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].Repo < repos[j].Repo })
+	return provider.BotRepoResult{Repos: repos}, nil
 }
 
 func (c *Client) update(pr provider.BotPullRequest, change func(*provider.BotPullRequest) bool) error {
