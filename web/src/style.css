@@ -91,6 +91,7 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .loading-bar i { animation: none; width: 100%; } }
 .reason-label { color: #4f64b4; background: #edf0ff; }
+.reason-label.review-approved { color: #1a7f37; background: #dafbe1; }
 .open-link { color: #a1a9b4; font-size: 16px; text-align: center; text-decoration: none; }
 .open-link:hover { color: var(--blue); }
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 70px 20px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: center; }

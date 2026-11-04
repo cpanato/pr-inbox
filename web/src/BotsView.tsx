@@ -245,7 +245,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             <div className="bots-bar">
               <label><input type="checkbox" checked={visible.length > 0 && targets.length === visible.length} onChange={(event) => toggle(visible.map((item) => item.id), event.target.checked)} /> Select all ({visible.length})</label>
               <span>{targets.length} selected{listing.incomplete ? ` · showing ${listing.items.length} of ${listing.totalCount}` : ""}</span>
-              <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("approve", targets)}>Approve</button>
+              <button type="button" disabled={disabled || targets.every((item) => item.review === "approved")} onClick={() => void run("approve", targets.filter((item) => item.review !== "approved"))}>Approve</button>
               <select aria-label="Merge method" value={method} onChange={(event) => setMethod(event.target.value)}>
                 {(listing.mergeMethods ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
@@ -285,7 +285,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                       <div className="pr-details">
                         <span className={`ci-label ci-${item.ci}`}>{ciText[item.ci] ?? item.ci}</span>
                         <span className={`merge-label merge-${item.mergeable}`}>{mergeText[item.mergeable] ?? item.mergeable}</span>
-                        <span className="reason-label">{reviewText[item.review] ?? item.review}</span>
+                        <span className={`reason-label${item.review === "approved" ? " review-approved" : ""}`}>{item.review === "approved" ? "✓ " : ""}{reviewText[item.review] ?? item.review}</span>
                         {item.mergeable === "conflicting" && (
                           customFor === item.id ? (
                             <form className="bots-custom" onSubmit={(event) => { event.preventDefault(); if (customText.trim()) { void run("comment", [item], customText.trim()); setCustomFor(null); } }}>

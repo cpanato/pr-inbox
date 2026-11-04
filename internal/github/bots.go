@@ -44,7 +44,7 @@ func botAuthor(author string) (string, error) {
 
 const botSearchQuery = `query($q:String!,$n:Int!,$after:String){search(query:$q,type:ISSUE,first:$n,after:$after){
 issueCount pageInfo{hasNextPage endCursor}
-nodes{... on PullRequest{databaseId number title url createdAt updatedAt isDraft mergeable mergeStateStatus reviewDecision headRefOid headRefName baseRefName
+nodes{... on PullRequest{databaseId number title url createdAt updatedAt isDraft mergeable mergeStateStatus reviewDecision latestOpinionatedReviews(first:20){nodes{state}} headRefOid headRefName baseRefName
 author{login} repository{nameWithOwner}
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}`
 
@@ -67,10 +67,15 @@ type botSearchResponse struct {
 				Mergeable        string    `json:"mergeable"`
 				MergeStateStatus string    `json:"mergeStateStatus"`
 				ReviewDecision   string    `json:"reviewDecision"`
-				HeadRefOid       string    `json:"headRefOid"`
-				HeadRefName      string    `json:"headRefName"`
-				BaseRefName      string    `json:"baseRefName"`
-				Author           *struct {
+				LatestReviews    struct {
+					Nodes []struct {
+						State string `json:"state"`
+					} `json:"nodes"`
+				} `json:"latestOpinionatedReviews"`
+				HeadRefOid  string `json:"headRefOid"`
+				HeadRefName string `json:"headRefName"`
+				BaseRefName string `json:"baseRefName"`
+				Author      *struct {
 					Login string `json:"login"`
 				} `json:"author"`
 				Repository struct {
@@ -104,6 +109,29 @@ func mergeability(mergeable, status string) string {
 		return provider.MergeBlocked
 	}
 	return provider.MergeUnknown
+}
+
+// botReviewState falls back to the latest reviews when the repository does not
+// require reviews, because reviewDecision is then empty even if approved.
+func botReviewState(decision string, reviews []struct {
+	State string `json:"state"`
+}) string {
+	if state := decisionState(decision); state != provider.ReviewNone {
+		return state
+	}
+	approved := false
+	for _, review := range reviews {
+		switch review.State {
+		case "CHANGES_REQUESTED":
+			return provider.ReviewChangesRequested
+		case "APPROVED":
+			approved = true
+		}
+	}
+	if approved {
+		return provider.ReviewApproved
+	}
+	return provider.ReviewNone
 }
 
 func decisionState(decision string) string {
@@ -176,7 +204,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 				},
 				HeadSHA:     node.HeadRefOid,
 				Mergeable:   mergeability(node.Mergeable, node.MergeStateStatus),
-				ReviewState: decisionState(node.ReviewDecision),
+				ReviewState: botReviewState(node.ReviewDecision, node.LatestReviews.Nodes),
 				Branch:      node.HeadRefName,
 				BaseBranch:  node.BaseRefName,
 			})
