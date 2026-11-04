@@ -291,3 +291,11 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .bots-pager button { height: 32px; padding: 0 12px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; color: #343d4b; font-size: 12px; font-weight: 600; cursor: pointer; }
 .bots-pager button:disabled { opacity: .5; cursor: not-allowed; }
 .bots-collapse-all button { color: #343d4b; cursor: pointer; }
+.bots-skeleton { display: grid; gap: 12px; margin-top: 16px; color: var(--muted); font-size: 13px; }
+.bots-skeleton p { display: flex; align-items: center; gap: 8px; margin: 0; }
+.skeleton-group { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line, #e3e7ee); border-radius: 10px; background: #fff; }
+.skeleton-title, .skeleton-row { display: block; border-radius: 6px; background: linear-gradient(90deg, #eef1f6 25%, #f7f8fb 50%, #eef1f6 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.skeleton-title { width: 30%; height: 16px; }
+.skeleton-row { height: 38px; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-title, .skeleton-row { animation: none; } }

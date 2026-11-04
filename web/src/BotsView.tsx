@@ -362,6 +362,14 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         {error && <p className="error-notice" role="alert">{error}</p>}
         {notice && <p className="bots-notice" role="status">{notice}</p>}
 
+        {loading && !listing && (
+          <div className="bots-skeleton" role="status" aria-live="polite">
+            <p><span className="spinner" /> Loading {org.trim() || "pull requests"}… listing repositories first, then pull requests.</p>
+            {[0, 1, 2].map((row) => (
+              <div className="skeleton-group" key={row}><i className="skeleton-title" /><i className="skeleton-row" /><i className="skeleton-row" /></div>
+            ))}
+          </div>
+        )}
         {listing && (
           <>
             <div className="bots-bar">
@@ -386,6 +394,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             {index && (
               <div className="bots-pager">
                 <span>{index.total} PR(s) in {index.repos.length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
+                {loading && <span className="bots-working"><span className="spinner" /> Loading…</span>}
                 {matching.length > repoPageSize && (
                   <>
                     <button type="button" disabled={loading || page === 0} onClick={() => void goToPage(page - 1)}>‹ Prev</button>

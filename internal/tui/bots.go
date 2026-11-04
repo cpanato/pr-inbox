@@ -690,10 +690,13 @@ func (m *botsModel) View() tea.View {
 		pages := (len(m.index.Repos) + botsRepoPageSize - 1) / botsRepoPageSize
 		lines[1] = muted.Render(fmt.Sprintf("Page %d/%d · %d PR(s) in %d repo(s) · n next · p previous", m.page+1, pages, m.index.Total, len(m.index.Repos)))
 	}
+	if m.loading && m.listing != nil {
+		lines[1] = accent.Render("⏳ Loading…")
+	}
 	items := m.visible()
 	switch {
 	case m.loading && m.listing == nil:
-		lines = append(lines, "Loading…")
+		lines = append(lines, accent.Render("⏳ Loading "+safe(m.org)+"…")+muted.Render(" listing repositories, then pull requests"))
 	case m.org == "":
 		lines = append(lines, "Press o to choose an organization.")
 	case len(items) == 0:
