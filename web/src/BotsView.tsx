@@ -121,23 +121,33 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     setBusy(true);
     setNotice("");
     const failures: string[] = [];
+    const done = new Set<number>();
     for (const item of items) {
       try {
         await request("/api/bots/action", { method: "POST", body: JSON.stringify({ provider: providerId, id: item.id, action, method, body }) }, csrfToken);
+        done.add(item.id);
       } catch (reason) {
         failures.push(`${item.repo}#${item.number}: ${reason instanceof Error ? reason.message : "failed"}`);
       }
     }
-    setNotice(`${action}: ${items.length - failures.length} succeeded${failures.length ? `, ${failures.length} failed — ${failures.join("; ")}` : ""}`);
+    setNotice(`${action}: ${done.size} succeeded${failures.length ? `, ${failures.length} failed — ${failures.join("; ")}` : ""}`);
     setConfirmMerge(false);
+    // Reflect the result immediately; the slow full reload runs in the background.
+    setListing((current) => {
+      if (!current) return current;
+      if (action === "merge") return { ...current, items: current.items.filter((item) => !done.has(item.id)), totalCount: Math.max(0, current.totalCount - done.size) };
+      if (action === "approve") return { ...current, items: current.items.map((item) => (done.has(item.id) ? { ...item, review: "approved" } : item)) };
+      return current;
+    });
+    if (action === "merge") setSelected((current) => new Set([...current].filter((id) => !done.has(id))));
     setBusy(false);
-    await load(org, author, true);
+    void load(org, author, true);
   };
 
   if (available.length === 0) return <main className="center-state">No connected provider supports bot pull requests.</main>;
   const mention = `@${author.replace(/\[bot\]$/, "")}`;
   const rebase = `${mention} rebase`;
-  const disabled = readOnly || busy || loading;
+  const disabled = readOnly || busy;
 
   return (
     <div className="app-shell">
