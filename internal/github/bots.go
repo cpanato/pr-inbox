@@ -15,6 +15,10 @@ import (
 	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
+// Smaller pages keep the CI/merge-state search under GitHub's query time limit
+// on large organizations, which otherwise answers 502/504.
+const botPageSize = 25
+
 var authorPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,60}$`)
 
 // knownBots are searched as GitHub Apps ("app/<name>") when given without a
@@ -123,7 +127,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	result := provider.BotResult{}
 	cursor := ""
 	for len(result.Items) < limit {
-		variables := map[string]any{"q": q, "n": min(pageSize, limit-len(result.Items))}
+		variables := map[string]any{"q": q, "n": min(botPageSize, limit-len(result.Items))}
 		if cursor != "" {
 			variables["after"] = cursor
 		}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const ciBatchSize = 50
@@ -139,32 +140,61 @@ func (c *Client) graphQL(ctx context.Context, query string, variables map[string
 	return nil
 }
 
+const (
+	graphQLAttempts   = 3
+	graphQLRetryDelay = time.Second
+)
+
 func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
 	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
 	if err != nil {
 		return nil, fmt.Errorf("build GitHub GraphQL request: %w", err)
 	}
+	var lastErr error
+	for attempt := 0; attempt < graphQLAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, lastErr
+			case <-time.After(time.Duration(attempt) * graphQLRetryDelay):
+			}
+		}
+		body, status, err := c.postGraphQLOnce(ctx, payload)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if status != http.StatusBadGateway && status != http.StatusServiceUnavailable && status != http.StatusGatewayTimeout {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// postGraphQLOnce returns the HTTP status alongside any error so callers can
+// retry only transient gateway failures.
+func (c *Client) postGraphQLOnce(ctx context.Context, payload []byte) ([]byte, int, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("build GitHub GraphQL request: %w", err)
+		return nil, 0, fmt.Errorf("build GitHub GraphQL request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("GitHub GraphQL request failed: %w", err)
+		return nil, 0, fmt.Errorf("GitHub GraphQL request failed: %w", err)
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
 	if err != nil {
-		return nil, fmt.Errorf("read GitHub GraphQL response: %w", err)
+		return nil, 0, fmt.Errorf("read GitHub GraphQL response: %w", err)
 	}
 	if len(body) > maxResponse {
-		return nil, fmt.Errorf("GitHub GraphQL response exceeded the 8 MiB limit")
+		return nil, 0, fmt.Errorf("GitHub GraphQL response exceeded the 8 MiB limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("GitHub GraphQL returned %s", response.Status)
+		return nil, response.StatusCode, fmt.Errorf("GitHub GraphQL returned %s", response.Status)
 	}
-	return body, nil
+	return body, response.StatusCode, nil
 }

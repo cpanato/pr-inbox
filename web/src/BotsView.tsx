@@ -65,10 +65,10 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     try {
       const params = new URLSearchParams({ provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim() });
       const data = await request<Listing>(`/api/bots?${params}`);
-      setListing(data);
-      setMethod((current) => (data.mergeMethods.includes(current) ? current : data.mergeMethods[0] ?? ""));
+      setListing({ ...data, items: data.items ?? [], mergeMethods: data.mergeMethods ?? [] });
+      setMethod((current) => ((data.mergeMethods ?? []).includes(current) ? current : (data.mergeMethods ?? [])[0] ?? ""));
       setSelected((current) => {
-        const present = new Set(data.items.map((item) => item.id));
+        const present = new Set((data.items ?? []).map((item) => item.id));
         return keep ? new Set([...current].filter((id) => present.has(id))) : new Set();
       });
       storageSet("bots.org", nextOrg.trim());
@@ -86,8 +86,9 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     setOrgs([]);
     void request<{ orgs: string[] }>(`/api/bots/orgs?provider=${encodeURIComponent(providerId)}`)
       .then((data) => {
-        setOrgs(data.orgs);
-        const initial = org || data.orgs[0] || "";
+        const names = data.orgs ?? [];
+        setOrgs(names);
+        const initial = org || names[0] || "";
         if (initial) { setOrg(initial); void load(initial, author); }
       })
       .catch(() => { if (org) void load(org, author); });
@@ -205,7 +206,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <span>{targets.length} selected{listing.incomplete ? ` · showing ${listing.items.length} of ${listing.totalCount}` : ""}</span>
               <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("approve", targets)}>Approve</button>
               <select aria-label="Merge method" value={method} onChange={(event) => setMethod(event.target.value)}>
-                {listing.mergeMethods.map((value) => <option key={value} value={value}>{value}</option>)}
+                {(listing.mergeMethods ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
               {confirmMerge ? (
                 <>
