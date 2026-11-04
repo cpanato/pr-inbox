@@ -112,6 +112,9 @@ func (c *Client) BotApprove(_ context.Context, pr provider.BotPullRequest) error
 func (c *Client) BotMerge(_ context.Context, pr provider.BotPullRequest, _ string) error {
 	return c.update(pr, func(*provider.BotPullRequest) bool { return false })
 }
+func (c *Client) BotClose(_ context.Context, pr provider.BotPullRequest) error {
+	return c.update(pr, func(*provider.BotPullRequest) bool { return false })
+}
 func (c *Client) BotComment(_ context.Context, pr provider.BotPullRequest, body string) error {
 	return c.update(pr, func(p *provider.BotPullRequest) bool {
 		if (strings.Contains(body, "rebase") || strings.Contains(body, "recreate")) && p.Mergeable == provider.MergeConflicting {

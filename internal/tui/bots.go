@@ -98,14 +98,15 @@ type botsModel struct {
 	rowState    map[int64]string
 	jobs        map[string]*botsJobState
 
-	cursor   int
-	selected map[int64]bool
-	filter   int
-	query    string
-	method   int
-	confirm  string // pending merge confirmation
-	input    textinput.Model
-	inputing botInputKind
+	cursor        int
+	selected      map[int64]bool
+	filter        int
+	query         string
+	method        int
+	confirm       string // pending merge or close confirmation
+	confirmAction string
+	input         textinput.Model
+	inputing      botInputKind
 
 	width, height int
 }
@@ -297,7 +298,7 @@ func (m *botsModel) applyJob(msg botsJobMsg) tea.Cmd {
 			delete(m.rowState, item.ID)
 			if item.Status == bots.StatusDone && !state.applied[item.ID] {
 				state.applied[item.ID] = true
-				if state.action == bots.ActionMerge {
+				if state.action == bots.ActionMerge || state.action == bots.ActionClose {
 					gone[item.ID] = true
 				}
 				for i := range m.listing.Items {
@@ -515,11 +516,12 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.confirm != "" {
 		confirmed := msg.String() == "y"
-		m.confirm = ""
+		action := m.confirmAction
+		m.confirm, m.confirmAction = "", ""
 		if confirmed {
-			return m, m.act(bots.ActionMerge, "")
+			return m, m.act(action, "")
 		}
-		m.notice = "Merge cancelled."
+		m.notice = "Cancelled."
 		return m, nil
 	}
 	items := m.visible()
@@ -609,7 +611,7 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			opener := m.opener
 			return m, func() tea.Msg { return botsOpenedMsg{err: opener(link)} }
 		}
-	case "a", "m", "c", "b", "R", "M":
+	case "a", "m", "c", "b", "R", "M", "X":
 		if m.readOnly {
 			m.notice = "Read-only mode: actions are disabled."
 			return m, nil
@@ -622,6 +624,10 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.act(bots.ActionApprove, "")
 		case "m":
 			m.confirm = fmt.Sprintf("Merge %d item(s) with %s? y/N", len(m.targets()), m.methodName())
+			m.confirmAction = bots.ActionMerge
+		case "X":
+			m.confirm = fmt.Sprintf("Close %d item(s) without merging? y/N", len(m.targets()))
+			m.confirmAction = bots.ActionClose
 		case "M":
 			if m.listing != nil && len(m.listing.MergeMethods) > 0 {
 				m.method = (m.method + 1) % len(m.listing.MergeMethods)
@@ -766,7 +772,7 @@ func (m *botsModel) View() tea.View {
 		footer = append(footer, amber.Render(m.confirm))
 	default:
 		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · [ ] provider")))
-		footer = append(footer, muted.Render(clip("a approve · m merge · n/p page · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
+		footer = append(footer, muted.Render(clip("a approve · m merge · X close · n/p page · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
 	}
 	for len(lines)+len(footer) < m.height {
 		lines = append(lines, "")

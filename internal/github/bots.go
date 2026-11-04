@@ -338,6 +338,14 @@ func (p *Provider) BotComment(ctx context.Context, pr provider.BotPullRequest, b
 	return p.client.send(ctx, http.MethodPost, path, map[string]string{"body": body})
 }
 
+func (p *Provider) BotClose(ctx context.Context, pr provider.BotPullRequest) error {
+	path, err := botPath(pr, fmt.Sprintf("pulls/%d", pr.Number))
+	if err != nil {
+		return provider.ErrBotInvalid
+	}
+	return p.client.send(ctx, http.MethodPatch, path, map[string]string{"state": "closed"})
+}
+
 // send performs a write request. Redirects are never followed so a credential
 // or payload cannot be replayed to another location.
 func (c *Client) send(ctx context.Context, method, path string, payload any) error {

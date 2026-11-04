@@ -321,7 +321,7 @@ author (`dependabot`, `renovate` or any login) and a status filter in the
 interface. Open PRs are grouped by repository with CI status, mergeability
 (conflicts are highlighted) and review state. Select PRs individually, per
 repository or all at once, then **Approve**, **Merge** (with a confirmation
-and a merge method) or **Comment** (for example `@dependabot rebase`; every PR has an "Ask… to"
+and a merge method), **Close PR** (with a confirmation) or **Comment** (for example `@dependabot rebase`; every PR has an "Ask… to"
 menu with Rebase, Recreate or a custom command). Approve and merge are pinned to the
 listed head commit, so a PR that changed since it was listed is not merged.
 Actions run as background jobs (different repositories in parallel, one PR at a
@@ -338,7 +338,7 @@ methods are merge and squash; write actions need a token with the `api` scope).
 
 Terminal keys: `j/k` move, `x` select, `*` select all, `f` status filter, `/`
 search, `o` organization, `u` author, `a` approve, `m` merge (`M` changes the
-method), `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `n`/`p`
+method), `X` close without merging, `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `n`/`p`
 next/previous page, `[`/`]` provider.
 
 ![The bots terminal UI listing dependabot pull requests by repository](assets/screenshot-bots-tui.png)

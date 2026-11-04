@@ -222,6 +222,14 @@ func (p *Provider) BotComment(ctx context.Context, pr provider.BotPullRequest, b
 	return p.client.send(ctx, http.MethodPost, path, map[string]any{"body": body})
 }
 
+func (p *Provider) BotClose(ctx context.Context, pr provider.BotPullRequest) error {
+	path, err := p.botPath(pr, "")
+	if err != nil {
+		return provider.ErrBotInvalid
+	}
+	return p.client.send(ctx, http.MethodPut, strings.TrimSuffix(path, "/"), map[string]any{"state_event": "close"})
+}
+
 // send performs a write request without following redirects.
 func (c *Client) send(ctx context.Context, method, path string, payload any) error {
 	data, err := json.Marshal(payload)

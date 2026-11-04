@@ -87,6 +87,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [method, setMethod] = useState("");
   const [comment, setComment] = useState("");
   const [confirmMerge, setConfirmMerge] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [customFor, setCustomFor] = useState<number | null>(null);
@@ -248,12 +249,13 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const isActive = (id: number) => { const state = rowStatus.get(id)?.status; return state === "queued" || state === "running"; };
 
   // Actions run in a server-side job; this polls it and updates only the rows and repos it touches.
-  const run = async (action: "approve" | "merge" | "comment", items: BotPR[], body = "") => {
+  const run = async (action: "approve" | "merge" | "close" | "comment", items: BotPR[], body = "") => {
     const fresh = items.filter((item) => !isActive(item.id));
     if (fresh.length === 0) return;
     const context = contextRef.current;
     setNotice("");
     setConfirmMerge(false);
+    setConfirmClose(false);
     setStatuses(fresh.map((item) => [item.id, { status: "queued" }]));
     let job: Job;
     try {
@@ -272,7 +274,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         const finished = job.finished;
         const done = job.items.filter((item) => item.status === "done" && !applied.has(item.id));
         done.forEach((item) => applied.add(item.id));
-        if (done.length > 0 && action === "merge") {
+        if (done.length > 0 && (action === "merge" || action === "close")) {
           const ids = new Set(done.map((item) => item.id));
           setListing((current) => (current ? { ...current, items: current.items.filter((item) => !ids.has(item.id)), totalCount: Math.max(0, current.totalCount - ids.size) } : current));
           const gone = new Map<string, number>();
@@ -403,7 +405,15 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                   <button type="button" onClick={() => setConfirmMerge(false)}>Cancel</button>
                 </>
               ) : (
-                <button type="button" disabled={disabled || targets.length === 0} onClick={() => setConfirmMerge(true)}>Merge…</button>
+                <button type="button" disabled={disabled || targets.length === 0} onClick={() => { setConfirmClose(false); setConfirmMerge(true); }}>Merge…</button>
+              )}
+              {confirmClose ? (
+                <>
+                  <button type="button" className="danger" disabled={disabled} onClick={() => void run("close", targets)}>Confirm close of {targets.length}</button>
+                  <button type="button" onClick={() => setConfirmClose(false)}>Cancel</button>
+                </>
+              ) : (
+                <button type="button" disabled={disabled || targets.length === 0} onClick={() => { setConfirmMerge(false); setConfirmClose(true); }}>Close PR…</button>
               )}
               <input aria-label="Comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder={rebase} />
               <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("comment", targets, comment.trim() || rebase)}>Comment</button>

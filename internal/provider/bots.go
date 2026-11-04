@@ -89,5 +89,7 @@ type BotProvider interface {
 	BotApprove(ctx context.Context, pr BotPullRequest) error
 	BotMerge(ctx context.Context, pr BotPullRequest, method string) error
 	BotComment(ctx context.Context, pr BotPullRequest, body string) error
+	// BotClose closes the pull request without merging it.
+	BotClose(ctx context.Context, pr BotPullRequest) error
 	MergeMethods() []string
 }
