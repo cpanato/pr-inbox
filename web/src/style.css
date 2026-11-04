@@ -301,3 +301,8 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 @media (prefers-reduced-motion: reduce) { .skeleton-title, .skeleton-row { animation: none; } }
 .bots-repo-link { color: inherit; text-decoration: none; }
 .bots-repo-link:hover { color: var(--blue); text-decoration: underline; }
+.bots-pager .spinner { display: inline-block; flex: none; vertical-align: middle; }
+.bots-pager-loading { display: inline-flex; align-items: center; gap: 6px; min-width: 92px; }
+.bots-chevron { width: 30px; height: 30px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; color: #343d4b; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.bots-chevron:hover:not(:disabled) { background: #f3f5f9; }
+.bots-chevron:disabled { opacity: .5; cursor: wait; }

@@ -397,7 +397,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             {index && (
               <div className="bots-pager">
                 <span>{index.total} PR(s) in {index.repos.length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
-                {loading && <span className="bots-working"><span className="spinner" /> Loading…</span>}
+                <span className="bots-working bots-pager-loading" aria-hidden={!loading} style={{ visibility: loading ? "visible" : "hidden" }}><span className="spinner" /> Loading…</span>
                 {matching.length > repoPageSize && (
                   <>
                     <button type="button" disabled={loading || page === 0} onClick={() => void goToPage(page - 1)}>‹ Prev</button>
