@@ -39,6 +39,9 @@ var (
 type BotQuery struct {
 	Org    string
 	Author string
+	// Repo optionally narrows the query to one repository ("owner/name"),
+	// which must belong to Org. It makes refreshing a single repo cheap.
+	Repo string
 }
 
 // BotPullRequest is a change request with the extra state needed to decide

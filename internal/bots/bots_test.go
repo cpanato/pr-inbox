@@ -35,3 +35,28 @@ func TestActOnlyListedItems(t *testing.T) {
 		t.Fatalf("merged PR still listed: %d", len(listing.Items))
 	}
 }
+
+func TestListRepoReplacesOnlyThatRepo(t *testing.T) {
+	d := demo.New()
+	s := New(d.Info(), d)
+	ctx := context.Background()
+	if _, err := s.List(ctx, "acme", "dependabot"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Act(ctx, 305, ActionMerge, "squash", ""); err != nil {
+		t.Fatal(err)
+	}
+	listing, err := s.ListRepo(ctx, "acme", "dependabot", "acme/infra")
+	if err != nil || len(listing.Items) != 0 {
+		t.Fatalf("listing=%+v err=%v", listing, err)
+	}
+	if err := s.Act(ctx, 305, ActionApprove, "", ""); !errors.Is(err, ErrUnknownItem) {
+		t.Fatalf("merged PR should no longer be actionable, got %v", err)
+	}
+	if err := s.Act(ctx, 303, ActionApprove, "", ""); err != nil {
+		t.Fatalf("other repos must stay actionable, got %v", err)
+	}
+	if _, err := s.ListRepo(ctx, "acme", "dependabot", ""); err == nil {
+		t.Fatal("empty repo should be rejected")
+	}
+}

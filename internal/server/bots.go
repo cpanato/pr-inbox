@@ -70,7 +70,13 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		h.respond(w, http.StatusOK, map[string]any{"orgs": orgs})
 	case "/api/bots":
-		listing, err := service.List(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
+		var listing bots.Listing
+		var err error
+		if repo := r.URL.Query().Get("repo"); repo != "" {
+			listing, err = service.ListRepo(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), repo)
+		} else {
+			listing, err = service.List(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
+		}
 		if err != nil {
 			h.writeError(w, http.StatusBadGateway, "provider_error", err.Error())
 			return

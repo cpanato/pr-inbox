@@ -155,3 +155,28 @@ func TestBotMergeRetriesServerErrors(t *testing.T) {
 		t.Fatalf("err=%v puts=%d", err, puts)
 	}
 }
+
+func TestBotPullRequestsRepoScope(t *testing.T) {
+	var query string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		query = string(data)
+		_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+	if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repo: "acme/api"}, 10); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "repo:acme/api") || strings.Contains(query, "org:acme") {
+		t.Fatalf("query should be scoped to the repo: %s", query)
+	}
+	for _, bad := range []string{"other/api", "acme/a b", "acme", "acme/x y"} {
+		if _, err := p.BotPullRequests(context.Background(), provider.BotQuery{Org: "acme", Author: "dependabot", Repo: bad}, 10); err == nil {
+			t.Errorf("repo %q should be rejected", bad)
+		}
+	}
+}

@@ -62,6 +62,9 @@ func (c *Client) BotPullRequests(_ context.Context, q provider.BotQuery, limit i
 	defer s.mu.Unlock()
 	out := []provider.BotPullRequest{}
 	for _, pr := range s.items {
+		if q.Repo != "" && pr.Repo != q.Repo {
+			continue
+		}
 		if strings.HasPrefix(pr.Repo, strings.ToLower(q.Org)+"/") && strings.HasPrefix(strings.ToLower(q.Author), "dependabot") {
 			out = append(out, pr)
 		}
