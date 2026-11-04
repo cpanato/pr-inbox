@@ -329,13 +329,15 @@ time within a repository), so the interface never blocks: each row shows
 Queued, Working or Failed, queued items can be cancelled, and only the affected
 repositories are refreshed. Already approved PRs are marked and not approved
 again. Repositories can be collapsed and refreshed individually with ↻.
+Large organizations are paged by repository (5 per page, with a repository
+search); if GitHub times out, the PRs loaded so far are shown.
 `--read-only` disables all actions. Works on GitHub and GitLab (GitLab merge
 methods are merge and squash; write actions need a token with the `api` scope).
 
 Terminal keys: `j/k` move, `x` select, `*` select all, `f` status filter, `/`
 search, `o` organization, `u` author, `a` approve, `m` merge (`M` changes the
-method), `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `[`/`]`
-provider.
+method), `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `n`/`p`
+next/previous page, `[`/`]` provider.
 
 ![The bots terminal UI listing dependabot pull requests by repository](assets/screenshot-bots-tui.png)
 

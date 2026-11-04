@@ -39,9 +39,23 @@ var (
 type BotQuery struct {
 	Org    string
 	Author string
-	// Repo optionally narrows the query to one repository ("owner/name"),
-	// which must belong to Org. It makes refreshing a single repo cheap.
-	Repo string
+	// Repos optionally narrows the query to a few repositories ("owner/name"),
+	// which must belong to Org. It keeps paging and refreshing cheap in huge orgs.
+	Repos []string
+}
+
+// MaxBotRepos is the most repositories a single query may cover.
+const MaxBotRepos = 10
+
+// BotRepo is a repository with open automation PRs.
+type BotRepo struct {
+	Repo  string `json:"repo"`
+	Count int    `json:"count"`
+}
+
+type BotRepoResult struct {
+	Repos      []BotRepo
+	Incomplete bool
 }
 
 // BotPullRequest is a change request with the extra state needed to decide
@@ -68,6 +82,9 @@ type BotProvider interface {
 	// BotOrgs lists the organizations (groups) the viewer belongs to, so the
 	// UI can offer them as choices instead of requiring command-line flags.
 	BotOrgs(ctx context.Context) ([]string, error)
+	// BotRepos is a cheap query listing which repositories have open
+	// automation PRs, without CI or review details.
+	BotRepos(ctx context.Context, query BotQuery) (BotRepoResult, error)
 	BotPullRequests(ctx context.Context, query BotQuery, limit int) (BotResult, error)
 	BotApprove(ctx context.Context, pr BotPullRequest) error
 	BotMerge(ctx context.Context, pr BotPullRequest, method string) error

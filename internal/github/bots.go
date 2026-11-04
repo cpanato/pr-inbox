@@ -154,13 +154,9 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if err != nil {
 		return provider.BotResult{}, err
 	}
-	scope := "org:" + query.Org
-	if query.Repo != "" {
-		owner, name, ok := strings.Cut(query.Repo, "/")
-		if !ok || !strings.EqualFold(owner, query.Org) || !repoNamePattern.MatchString(name) {
-			return provider.BotResult{}, fmt.Errorf("invalid repository %q", query.Repo)
-		}
-		scope = "repo:" + owner + "/" + name
+	scope, err := botScope(query)
+	if err != nil {
+		return provider.BotResult{}, err
 	}
 	q := baseQuery + " " + scope + " author:" + author + " sort:created-asc"
 	result := provider.BotResult{}
@@ -172,7 +168,12 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 		}
 		body, err := p.client.postGraphQL(ctx, botSearchQuery, variables)
 		if err != nil {
-			return provider.BotResult{}, err
+			if len(result.Items) == 0 {
+				return provider.BotResult{}, err
+			}
+			// Huge orgs can time out on later pages; keep what was loaded.
+			result.Incomplete = true
+			return result, nil
 		}
 		var response botSearchResponse
 		if err := json.Unmarshal(body, &response); err != nil {

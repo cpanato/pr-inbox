@@ -19,7 +19,11 @@ type BotPR = {
 type JobItem = { id: number; repo: string; number: number; status: string; error?: string };
 type Job = { id: string; action: string; items: JobItem[]; finished: boolean };
 type RowStatus = { status: string; error?: string };
+type RepoIndex = { repos: { repo: string; count: number }[]; total: number; incomplete: boolean; fetchedAt: string };
+// Heavy details (CI, conflicts, reviews) load this many repositories at a time, which keeps huge orgs fast.
+const repoPageSize = 5;
 const rowStatusText: Record<string, string> = { queued: "Queued", running: "Working…", failed: "Failed" };
+const filterRepos = (index: RepoIndex, search: string) => index.repos.filter((item) => item.repo.toLowerCase().includes(search.trim().toLowerCase())).map((item) => item.repo);
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 type Listing = { org: string; author: string; items: BotPR[]; totalCount: number; incomplete: boolean; fetchedAt: string; mergeMethods: string[] };
@@ -52,9 +56,17 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
+  const [index, setIndex] = useState<RepoIndex | null>(null);
+  const [page, setPage] = useState(0);
   const [rowStatus, setRowStatus] = useState<Map<number, RowStatus>>(new Map());
   const [activeJobs, setActiveJobs] = useState<string[]>([]);
   const listingRef = useRef<Listing | null>(null);
+  const indexRef = useRef<RepoIndex | null>(null);
+  const queryRef = useRef("");
+  const pageRef = useRef(0);
+  // Only the newest load may update the screen, so a slow or failed request
+  // for a previous organization can never overwrite or block the current one.
+  const loadSeq = useRef(0);
   const contextRef = useRef("");
   const alive = useRef(true);
   const [error, setError] = useState("");
@@ -72,29 +84,78 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
 
   const load = useCallback(async (nextOrg: string, nextAuthor: string, keep = false) => {
     if (!nextOrg.trim() || !nextAuthor.trim()) return;
+    const seq = ++loadSeq.current;
+    const stale = () => seq !== loadSeq.current;
     setLoading(true);
     setError("");
+    if (!keep) { setListing(null); setIndex(null); setSelected(new Set()); }
     try {
-      const params = new URLSearchParams({ provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim() });
-      const data = await request<Listing>(`/api/bots?${params}`);
-      setListing({ ...data, items: data.items ?? [], mergeMethods: data.mergeMethods ?? [] });
-      setMethod((current) => ((data.mergeMethods ?? []).includes(current) ? current : (data.mergeMethods ?? [])[0] ?? ""));
-      setSelected((current) => {
-        const present = new Set((data.items ?? []).map((item) => item.id));
-        return keep ? new Set([...current].filter((id) => present.has(id))) : new Set();
-      });
+      const base = { provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim() };
+      const data = await request<RepoIndex>(`/api/bots/repos?${new URLSearchParams(base)}`);
+      if (stale()) return;
+      const fresh = { ...data, repos: data.repos ?? [] };
+      setIndex(fresh);
+      const names = filterRepos(fresh, queryRef.current);
+      const pageNo = keep ? Math.min(pageRef.current, Math.max(0, Math.ceil(names.length / repoPageSize) - 1)) : 0;
+      setPage(pageNo);
+      await fetchPage(names.slice(pageNo * repoPageSize, (pageNo + 1) * repoPageSize), base, keep, stale);
+      if (stale()) return;
       storageSet("bots.org", nextOrg.trim());
       storageSet("bots.author", nextAuthor.trim());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load pull requests.");
+      if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load pull requests.");
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId]);
+
+  const fetchPage = async (names: string[], base: { provider: string; org: string; author: string }, keep: boolean, stale: () => boolean) => {
+    let data: Listing = { org: base.org, author: base.author, items: [], totalCount: 0, incomplete: false, fetchedAt: new Date().toISOString(), mergeMethods: listingRef.current?.mergeMethods ?? [] };
+    if (names.length > 0) {
+      const params = new URLSearchParams(base);
+      names.forEach((name) => params.append("repo", name));
+      data = await request<Listing>(`/api/bots?${params}`);
+    }
+    if (stale()) return;
+    setListing({ ...data, items: data.items ?? [], mergeMethods: data.mergeMethods ?? [] });
+    setMethod((current) => ((data.mergeMethods ?? []).includes(current) ? current : (data.mergeMethods ?? [])[0] ?? ""));
+    setSelected((current) => {
+      const present = new Set((data.items ?? []).map((item) => item.id));
+      return keep ? new Set([...current].filter((id) => present.has(id))) : new Set();
+    });
+  };
+
+  const goToPage = async (pageNo: number, source = index, search = query) => {
+    if (!source || loading) return;
+    const names = filterRepos(source, search);
+    const bounded = Math.max(0, Math.min(pageNo, Math.ceil(names.length / repoPageSize) - 1));
+    const seq = ++loadSeq.current;
+    const stale = () => seq !== loadSeq.current;
+    setLoading(true);
+    setError("");
+    try {
+      await fetchPage(names.slice(bounded * repoPageSize, (bounded + 1) * repoPageSize), { provider: providerId, org: org.trim(), author: author.trim() }, false, stale);
+      if (!stale()) setPage(bounded);
+    } catch (reason) {
+      if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load this page.");
+    } finally {
+      if (!stale()) setLoading(false);
+    }
+  };
+
+  // Typing in search narrows the repository list; wait for a pause before loading.
+  useEffect(() => {
+    if (!indexRef.current) return;
+    const timer = window.setTimeout(() => void goToPage(0, indexRef.current, query), 400);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   useEffect(() => {
     if (!providerId) return;
     setListing(null);
+    setIndex(null);
     setOrgs([]);
     void request<{ orgs: string[] }>(`/api/bots/orgs?provider=${encodeURIComponent(providerId)}`)
       .then((data) => {
@@ -109,6 +170,9 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   }, [providerId]);
 
   listingRef.current = listing;
+  indexRef.current = index;
+  queryRef.current = query;
+  pageRef.current = page;
   contextRef.current = `${providerId}|${org.trim()}|${author.trim()}`;
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -119,6 +183,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     if (status === "pending" && item.ci !== "pending") return false;
     return `${item.repo} ${item.title}`.toLowerCase().includes(query.toLowerCase());
   }), [listing, status, query]);
+  const matching = useMemo(() => (index ? filterRepos(index, query) : []), [index, query]);
   const groups = useMemo(() => {
     const map = new Map<string, BotPR[]>();
     for (const item of visible) map.set(item.repo, [...(map.get(item.repo) ?? []), item]);
@@ -131,6 +196,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), repo });
       const data = await request<Listing>(`/api/bots?${params}`);
       const fresh = data.items ?? [];
+      setIndex((current) => (current ? { ...current, repos: current.repos.map((item) => (item.repo === repo ? { ...item, count: fresh.length } : item)), total: current.repos.reduce((sum, item) => sum + (item.repo === repo ? fresh.length : item.count), 0) } : current));
       setListing((current) => {
         if (!current) return current;
         const others = current.items.filter((item) => item.repo !== repo);
@@ -283,12 +349,12 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             <input list="bots-authors" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="dependabot" required />
             <datalist id="bots-authors">{authorPresets.map((name) => <option key={name} value={name} />)}</datalist>
           </label>
-          <label>Status
+          <label>Status (this page)
             <select value={status} onChange={(event) => setStatus(event.target.value)}>
               {statusFilters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="repo or title" /></label>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="repository name" /></label>
           <button className="refresh-button" type="submit" disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           {listing && <span className="bots-updated">Updated {new Date(listing.fetchedAt).toLocaleTimeString()}</span>}
         </form>
@@ -317,6 +383,18 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <input aria-label="Comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder={rebase} />
               <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("comment", targets, comment.trim() || rebase)}>Comment</button>
             </div>
+            {index && (
+              <div className="bots-pager">
+                <span>{index.total} PR(s) in {index.repos.length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
+                {matching.length > repoPageSize && (
+                  <>
+                    <button type="button" disabled={loading || page === 0} onClick={() => void goToPage(page - 1)}>‹ Prev</button>
+                    <span>Repos {page * repoPageSize + 1}–{Math.min(matching.length, (page + 1) * repoPageSize)} of {matching.length}</span>
+                    <button type="button" disabled={loading || (page + 1) * repoPageSize >= matching.length} onClick={() => void goToPage(page + 1)}>Next ›</button>
+                  </>
+                )}
+              </div>
+            )}
             {groups.length === 0 && <p className="subheading">No matching pull requests.</p>}
             {groups.length > 1 && (
               <div className="bots-collapse-all">

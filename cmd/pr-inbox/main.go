@@ -175,7 +175,7 @@ func serve(services []*inbox.Service, noOpen, readOnly, botsMode bool) error {
 	httpServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		IdleTimeout:       5 * time.Minute,
 	}
 	errCh := make(chan error, 1)
 	go func() {

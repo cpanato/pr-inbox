@@ -59,7 +59,7 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusNotFound, "unknown_provider", "No such provider supports bot pull requests.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	switch r.URL.Path {
 	case "/api/bots/orgs":
@@ -69,11 +69,18 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.respond(w, http.StatusOK, map[string]any{"orgs": orgs})
+	case "/api/bots/repos":
+		repos, err := service.Repos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
+		if err != nil {
+			h.writeError(w, http.StatusBadGateway, "provider_error", err.Error())
+			return
+		}
+		h.respond(w, http.StatusOK, repos)
 	case "/api/bots":
 		var listing bots.Listing
 		var err error
-		if repo := r.URL.Query().Get("repo"); repo != "" {
-			listing, err = service.ListRepo(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), repo)
+		if repos := r.URL.Query()["repo"]; len(repos) > 0 {
+			listing, err = service.ListRepos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), repos)
 		} else {
 			listing, err = service.List(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
 		}
