@@ -276,7 +276,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             refreshed.add(repo);
             void refreshRepo(repo);
             // Dependabot reacts to rebase and recreate comments after a delay.
-            if (action === "comment") window.setTimeout(() => { if (alive.current && contextRef.current === context) void refreshRepo(repo); }, 10000);
+            if (action === "comment") for (const delay of [10000, 30000]) window.setTimeout(() => { if (alive.current && contextRef.current === context) void refreshRepo(repo); }, delay);
           }
         }
         if (finished) break;
@@ -368,7 +368,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <label><input type="checkbox" checked={visible.length > 0 && targets.length === visible.length} onChange={(event) => toggle(visible.map((item) => item.id), event.target.checked)} /> Select all ({visible.length})</label>
               {activeJobs.length > 0 && <><span className="bots-working">Working on {[...rowStatus.values()].filter((value) => value.status === "queued" || value.status === "running").length} item(s)…</span><button type="button" onClick={cancelJobs}>Cancel queued</button></>}
               <span>{targets.length} selected{listing.incomplete ? ` · showing ${listing.items.length} of ${listing.totalCount}` : ""}</span>
-              <button type="button" disabled={disabled || targets.every((item) => item.review === "approved")} onClick={() => void run("approve", targets.filter((item) => item.review !== "approved"))}>Approve</button>
+              <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("approve", targets.some((item) => item.review !== "approved") ? targets.filter((item) => item.review !== "approved") : targets)}>{targets.length > 0 && targets.every((item) => item.review === "approved") ? "Approve again" : "Approve"}</button>
               <select aria-label="Merge method" value={method} onChange={(event) => setMethod(event.target.value)}>
                 {(listing.mergeMethods ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
