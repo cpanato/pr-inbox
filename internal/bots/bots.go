@@ -36,6 +36,9 @@ type Service struct {
 
 	mu     sync.Mutex
 	listed map[int64]provider.BotPullRequest
+	// queries remembers which org and author listed each item, so a single
+	// pull request can be re-read right before it is merged.
+	queries map[int64]provider.BotQuery
 
 	jobs *jobRunner
 }
@@ -56,7 +59,7 @@ func New(info provider.Info, p provider.Provider) *Service {
 	if !ok {
 		return nil
 	}
-	return &Service{info: info, p: bp, listed: make(map[int64]provider.BotPullRequest), jobs: newJobRunner()}
+	return &Service{info: info, p: bp, listed: make(map[int64]provider.BotPullRequest), queries: make(map[int64]provider.BotQuery), jobs: newJobRunner()}
 }
 
 func (s *Service) Info() provider.Info { return s.info }
@@ -85,6 +88,7 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 	s.mu.Lock()
 	for _, item := range result.Items {
 		s.listed[item.ID] = item
+		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author}
 	}
 	s.mu.Unlock()
 	sort.SliceStable(result.Items, func(i, j int) bool {
@@ -154,10 +158,12 @@ func (s *Service) ListRepos(ctx context.Context, org, author string, repos []str
 	for id, item := range s.listed {
 		if wanted[item.Repo] {
 			delete(s.listed, id)
+			delete(s.queries, id)
 		}
 	}
 	for _, item := range result.Items {
 		s.listed[item.ID] = item
+		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author}
 	}
 	s.mu.Unlock()
 	sort.SliceStable(result.Items, func(i, j int) bool {

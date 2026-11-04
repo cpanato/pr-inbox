@@ -144,8 +144,11 @@ func (s *Service) Submit(ids []int64, action, method, body string) (Job, error) 
 			defer wg.Done()
 			s.jobs.slots <- struct{}{}
 			defer func() { <-s.jobs.slots }()
+			merged := false
 			for _, id := range ids {
-				s.runItem(j, repo, id, action, method, body)
+				if s.runItem(j, repo, id, action, method, body, merged) && action == ActionMerge {
+					merged = true
+				}
 			}
 		}(repo, byRepo[repo])
 	}
@@ -192,20 +195,30 @@ func (j *job) view() Job {
 	return out
 }
 
-func (s *Service) runItem(j *job, repo string, id int64, action, method, body string) {
+// runItem reports whether the action succeeded. After an earlier merge in the
+// same repository, the pull request is re-read first because that merge may
+// have made it conflict or made the bot push new commits.
+func (s *Service) runItem(j *job, repo string, id int64, action, method, body string, afterMerge bool) bool {
 	lock := s.jobs.repoLock(repo)
 	lock.Lock()
 	defer lock.Unlock()
 	if !j.start(id) {
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), itemTimeout)
 	defer cancel()
+	if afterMerge && action == ActionMerge {
+		if err := s.recheck(ctx, id); err != nil {
+			j.finish(id, StatusFailed, err.Error())
+			return false
+		}
+	}
 	if err := s.Act(ctx, id, action, method, body); err != nil {
 		j.finish(id, StatusFailed, err.Error())
-		return
+		return false
 	}
 	j.finish(id, StatusDone, "")
+	return true
 }
 
 // Job returns the current state of a submitted job.
