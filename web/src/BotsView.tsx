@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { request } from "./api";
 
 type BotPR = {
@@ -16,6 +16,12 @@ type BotPR = {
   branch: string;
   baseBranch: string;
 };
+type JobItem = { id: number; repo: string; number: number; status: string; error?: string };
+type Job = { id: string; action: string; items: JobItem[]; finished: boolean };
+type RowStatus = { status: string; error?: string };
+const rowStatusText: Record<string, string> = { queued: "Queued", running: "Working…", failed: "Failed" };
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 type Listing = { org: string; author: string; items: BotPR[]; totalCount: number; incomplete: boolean; fetchedAt: string; mergeMethods: string[] };
 type ProviderInfo = { id: string; name: string; kind: string; viewer: string; host?: string; botsAvailable?: boolean };
 type Props = { providers: ProviderInfo[]; csrfToken: string; readOnly: boolean };
@@ -46,7 +52,11 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [rowStatus, setRowStatus] = useState<Map<number, RowStatus>>(new Map());
+  const [activeJobs, setActiveJobs] = useState<string[]>([]);
+  const listingRef = useRef<Listing | null>(null);
+  const contextRef = useRef("");
+  const alive = useRef(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -98,6 +108,10 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId]);
 
+  listingRef.current = listing;
+  contextRef.current = `${providerId}|${org.trim()}|${author.trim()}`;
+  useEffect(() => () => { alive.current = false; }, []);
+
   const visible = useMemo(() => (listing?.items ?? []).filter((item) => {
     if (status === "ready" && !(item.mergeable === "clean" && item.ci === "success")) return false;
     if (status === "conflicts" && item.mergeable !== "conflicting") return false;
@@ -125,7 +139,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         return { ...current, items, totalCount: Math.max(items.length, current.totalCount - before + fresh.length), fetchedAt: data.fetchedAt };
       });
       const present = new Set(fresh.map((item) => item.id));
-      setSelected((current) => new Set([...current].filter((id) => present.has(id) || !visible.some((item) => item.id === id && item.repo === repo))));
+      const old = new Set((listingRef.current?.items ?? []).filter((item) => item.repo === repo).map((item) => item.id));
+      setSelected((current) => new Set([...current].filter((id) => present.has(id) || !old.has(id))));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Could not refresh ${repo}.`);
     } finally {
@@ -147,38 +162,79 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     return next;
   });
 
+  const setStatuses = (updates: [number, RowStatus | null][]) => setRowStatus((current) => {
+    const next = new Map(current);
+    for (const [id, value] of updates) value ? next.set(id, value) : next.delete(id);
+    return next;
+  });
+  const isActive = (id: number) => { const state = rowStatus.get(id)?.status; return state === "queued" || state === "running"; };
+
+  // Actions run in a server-side job; this polls it and updates only the rows and repos it touches.
   const run = async (action: "approve" | "merge" | "comment", items: BotPR[], body = "") => {
-    if (items.length === 0 || busy) return;
-    setBusy(true);
+    const fresh = items.filter((item) => !isActive(item.id));
+    if (fresh.length === 0) return;
+    const context = contextRef.current;
     setNotice("");
-    const failures: string[] = [];
-    const done = new Set<number>();
-    for (const item of items) {
-      try {
-        await request("/api/bots/action", { method: "POST", body: JSON.stringify({ provider: providerId, id: item.id, action, method, body }) }, csrfToken);
-        done.add(item.id);
-      } catch (reason) {
-        failures.push(`${item.repo}#${item.number}: ${reason instanceof Error ? reason.message : "failed"}`);
-      }
-    }
-    setNotice(`${action}: ${done.size} succeeded${failures.length ? `, ${failures.length} failed — ${failures.join("; ")}` : ""}`);
     setConfirmMerge(false);
-    // Reflect the result immediately; the slow full reload runs in the background.
-    setListing((current) => {
-      if (!current) return current;
-      if (action === "merge") return { ...current, items: current.items.filter((item) => !done.has(item.id)), totalCount: Math.max(0, current.totalCount - done.size) };
-      if (action === "approve") return { ...current, items: current.items.map((item) => (done.has(item.id) ? { ...item, review: "approved" } : item)) };
-      return current;
-    });
-    if (action === "merge") setSelected((current) => new Set([...current].filter((id) => !done.has(id))));
-    setBusy(false);
-    void load(org, author, true);
+    setStatuses(fresh.map((item) => [item.id, { status: "queued" }]));
+    let job: Job;
+    try {
+      job = await request<Job>("/api/bots/jobs", { method: "POST", body: JSON.stringify({ provider: providerId, ids: fresh.map((item) => item.id), action, method, body }) }, csrfToken);
+    } catch (reason) {
+      setStatuses(fresh.map((item) => [item.id, null]));
+      setError(reason instanceof Error ? reason.message : "Could not start the action.");
+      return;
+    }
+    setActiveJobs((current) => [...current, job.id]);
+    const applied = new Set<number>();
+    const refreshed = new Set<string>();
+    const repoItems = (repo: string) => job.items.filter((item) => item.repo === repo);
+    try {
+      for (;;) {
+        const finished = job.finished;
+        const done = job.items.filter((item) => item.status === "done" && !applied.has(item.id));
+        done.forEach((item) => applied.add(item.id));
+        if (done.length > 0 && action === "merge") {
+          const ids = new Set(done.map((item) => item.id));
+          setListing((current) => (current ? { ...current, items: current.items.filter((item) => !ids.has(item.id)), totalCount: Math.max(0, current.totalCount - ids.size) } : current));
+          setSelected((current) => new Set([...current].filter((id) => !ids.has(id))));
+        }
+        if (done.length > 0 && action === "approve") {
+          const ids = new Set(done.map((item) => item.id));
+          setListing((current) => (current ? { ...current, items: current.items.map((item) => (ids.has(item.id) ? { ...item, review: "approved" } : item)) } : current));
+        }
+        setStatuses(job.items.map((item): [number, RowStatus | null] => [item.id, item.status === "done" || item.status === "cancelled" ? null : { status: item.status, error: item.error }]));
+        if (!alive.current || contextRef.current !== context) break;
+        for (const repo of new Set(job.items.map((item) => item.repo))) {
+          if (!refreshed.has(repo) && repoItems(repo).every((item) => item.status !== "queued" && item.status !== "running")) {
+            refreshed.add(repo);
+            void refreshRepo(repo);
+            // Dependabot reacts to rebase and recreate comments after a delay.
+            if (action === "comment") window.setTimeout(() => { if (alive.current && contextRef.current === context) void refreshRepo(repo); }, 10000);
+          }
+        }
+        if (finished) break;
+        await sleep(1000);
+        job = await request<Job>(`/api/bots/jobs?${new URLSearchParams({ provider: providerId, id: job.id })}`);
+      }
+      const failed = job.items.filter((item) => item.status === "failed");
+      const succeeded = job.items.filter((item) => item.status === "done").length;
+      if (alive.current) setNotice(`${action}: ${succeeded} succeeded${failed.length ? `, ${failed.length} failed — ${failed.map((item) => `${item.repo}#${item.number}: ${item.error ?? "failed"}`).join("; ")}` : ""}`);
+    } catch (reason) {
+      if (alive.current) setError(reason instanceof Error ? reason.message : "Lost track of the running action; refresh to see the result.");
+      setStatuses(fresh.map((item) => [item.id, null]));
+    } finally {
+      if (alive.current) setActiveJobs((current) => current.filter((id) => id !== job.id));
+    }
+  };
+  const cancelJobs = () => {
+    for (const id of activeJobs) void request("/api/bots/jobs/cancel", { method: "POST", body: JSON.stringify({ provider: providerId, id }) }, csrfToken).catch(() => undefined);
   };
 
   if (available.length === 0) return <main className="center-state">No connected provider supports bot pull requests.</main>;
   const mention = `@${author.replace(/\[bot\]$/, "")}`;
   const rebase = `${mention} rebase`;
-  const disabled = readOnly || busy;
+  const disabled = readOnly;
 
   return (
     <div className="app-shell">
@@ -244,6 +300,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
           <>
             <div className="bots-bar">
               <label><input type="checkbox" checked={visible.length > 0 && targets.length === visible.length} onChange={(event) => toggle(visible.map((item) => item.id), event.target.checked)} /> Select all ({visible.length})</label>
+              {activeJobs.length > 0 && <><span className="bots-working">Working on {[...rowStatus.values()].filter((value) => value.status === "queued" || value.status === "running").length} item(s)…</span><button type="button" onClick={cancelJobs}>Cancel queued</button></>}
               <span>{targets.length} selected{listing.incomplete ? ` · showing ${listing.items.length} of ${listing.totalCount}` : ""}</span>
               <button type="button" disabled={disabled || targets.every((item) => item.review === "approved")} onClick={() => void run("approve", targets.filter((item) => item.review !== "approved"))}>Approve</button>
               <select aria-label="Merge method" value={method} onChange={(event) => setMethod(event.target.value)}>
@@ -286,7 +343,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                         <span className={`ci-label ci-${item.ci}`}>{ciText[item.ci] ?? item.ci}</span>
                         <span className={`merge-label merge-${item.mergeable}`}>{mergeText[item.mergeable] ?? item.mergeable}</span>
                         <span className={`reason-label${item.review === "approved" ? " review-approved" : ""}`}>{item.review === "approved" ? "✓ " : ""}{reviewText[item.review] ?? item.review}</span>
-                        {item.mergeable === "conflicting" && (
+                        {rowStatus.get(item.id) && <span className={`job-label job-${rowStatus.get(item.id)?.status}`} title={rowStatus.get(item.id)?.error}>{rowStatusText[rowStatus.get(item.id)?.status ?? ""] ?? rowStatus.get(item.id)?.status}</span>}
+                        {(
                           customFor === item.id ? (
                             <form className="bots-custom" onSubmit={(event) => { event.preventDefault(); if (customText.trim()) { void run("comment", [item], customText.trim()); setCustomFor(null); } }}>
                               <input aria-label="Custom command" value={customText} onChange={(event) => setCustomText(event.target.value)} placeholder={`${mention} …`} autoFocus />
@@ -297,7 +355,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                             <select
                               aria-label={`Ask ${author} to…`}
                               value=""
-                              disabled={disabled}
+                              disabled={disabled || isActive(item.id)}
                               onChange={(event) => {
                                 const value = event.target.value;
                                 if (value === "custom") { setCustomText(`${mention} `); setCustomFor(item.id); }

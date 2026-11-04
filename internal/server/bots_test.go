@@ -63,3 +63,29 @@ func TestBotsReadOnlyBlocksActions(t *testing.T) {
 		t.Fatalf("read-only: %d", rec.Code)
 	}
 }
+
+func TestBotsJobs(t *testing.T) {
+	h, csrf, cookie := botsSession(t, false)
+	botsRequest(h, cookie, csrf, http.MethodGet, "/api/bots?org=acme&author=dependabot", "")
+	rec := botsRequest(h, cookie, csrf, http.MethodPost, "/api/bots/jobs", `{"provider":"demo-github","ids":[303],"action":"approve"}`)
+	if rec.Code != 200 {
+		t.Fatalf("submit: %d %s", rec.Code, rec.Body.String())
+	}
+	id := strings.Split(strings.Split(rec.Body.String(), `"id":"`)[1], `"`)[0]
+	if rec := botsRequest(h, cookie, csrf, http.MethodGet, "/api/bots/jobs?provider=demo-github&id="+id, ""); rec.Code != 200 {
+		t.Fatalf("poll: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := botsRequest(h, cookie, csrf, http.MethodGet, "/api/bots/jobs?provider=demo-github&id=nope", ""); rec.Code != 404 {
+		t.Fatalf("unknown job: %d", rec.Code)
+	}
+	if rec := botsRequest(h, cookie, csrf, http.MethodPost, "/api/bots/jobs", `{"provider":"demo-github","ids":[999],"action":"approve"}`); rec.Code != 400 {
+		t.Fatalf("unlisted: %d", rec.Code)
+	}
+	if rec := botsRequest(h, cookie, "wrong", http.MethodPost, "/api/bots/jobs", `{"provider":"demo-github","ids":[303],"action":"approve"}`); rec.Code != 403 {
+		t.Fatalf("csrf: %d", rec.Code)
+	}
+	ro, roCSRF, roCookie := botsSession(t, true)
+	if rec := botsRequest(ro, roCookie, roCSRF, http.MethodPost, "/api/bots/jobs", `{"provider":"demo-github","ids":[303],"action":"approve"}`); rec.Code != 403 {
+		t.Fatalf("read-only: %d", rec.Code)
+	}
+}

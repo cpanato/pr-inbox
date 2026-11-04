@@ -36,6 +36,8 @@ type Service struct {
 
 	mu     sync.Mutex
 	listed map[int64]provider.BotPullRequest
+
+	jobs *jobRunner
 }
 
 type Listing struct {
@@ -54,7 +56,7 @@ func New(info provider.Info, p provider.Provider) *Service {
 	if !ok {
 		return nil
 	}
-	return &Service{info: info, p: bp, listed: make(map[int64]provider.BotPullRequest)}
+	return &Service{info: info, p: bp, listed: make(map[int64]provider.BotPullRequest), jobs: newJobRunner()}
 }
 
 func (s *Service) Info() provider.Info { return s.info }
@@ -125,17 +127,11 @@ func (s *Service) ListRepo(ctx context.Context, org, author, repo string) (Listi
 	}, nil
 }
 
-// Act applies one action to a previously listed pull request.
-func (s *Service) Act(ctx context.Context, id int64, action, method, body string) error {
-	s.mu.Lock()
-	pr, ok := s.listed[id]
-	s.mu.Unlock()
-	if !ok {
-		return ErrUnknownItem
-	}
+// validate checks an action's parameters and returns the effective merge
+// method and trimmed comment body.
+func (s *Service) validate(action, method, body string) (string, string, error) {
 	switch action {
 	case ActionApprove:
-		return s.p.BotApprove(ctx, pr)
 	case ActionMerge:
 		if method == "" {
 			method = s.p.MergeMethods()[0]
@@ -145,17 +141,40 @@ func (s *Service) Act(ctx context.Context, id int64, action, method, body string
 			supported = supported || m == method
 		}
 		if !supported {
-			return fmt.Errorf("%w: merge method %q", ErrBadAction, method)
+			return "", "", fmt.Errorf("%w: merge method %q", ErrBadAction, method)
 		}
+	case ActionComment:
+		body = strings.TrimSpace(body)
+		if body == "" || len(body) > maxComment {
+			return "", "", fmt.Errorf("%w: comment must be 1-%d characters", ErrBadAction, maxComment)
+		}
+	default:
+		return "", "", ErrBadAction
+	}
+	return method, body, nil
+}
+
+// Act applies one action to a previously listed pull request.
+func (s *Service) Act(ctx context.Context, id int64, action, method, body string) error {
+	s.mu.Lock()
+	pr, ok := s.listed[id]
+	s.mu.Unlock()
+	if !ok {
+		return ErrUnknownItem
+	}
+	method, body, err := s.validate(action, method, body)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case ActionApprove:
+		return s.p.BotApprove(ctx, pr)
+	case ActionMerge:
 		if pr.Mergeable == provider.MergeConflicting {
 			return errors.New("this pull request has conflicts; comment to rebase it first")
 		}
 		return s.p.BotMerge(ctx, pr, method)
 	case ActionComment:
-		body = strings.TrimSpace(body)
-		if body == "" || len(body) > maxComment {
-			return fmt.Errorf("%w: comment must be 1-%d characters", ErrBadAction, maxComment)
-		}
 		return s.p.BotComment(ctx, pr, body)
 	}
 	return ErrBadAction
