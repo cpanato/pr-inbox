@@ -30,13 +30,61 @@ func TestBotsModelSelectAndMerge(t *testing.T) {
 		t.Fatal("merge did not ask for confirmation")
 	}
 	_, cmd := m.Update(key('y'))
-	m.Update(cmd())
+	drain(m, cmd)
 	if len(m.visible()) != 3 || !strings.Contains(m.notice, "2 ok") {
 		t.Fatalf("notice=%q visible=%d", m.notice, len(m.visible()))
 	}
 	m.Update(key('f'))
 	if _, ok := interface{}(m).(tea.Model); !ok {
 		t.Fatal("not a model")
+	}
+}
+
+// drain feeds a command's messages back into the model, following batches,
+// until no further messages are produced.
+func drain(m *botsModel, cmd tea.Cmd) {
+	queue := []tea.Cmd{cmd}
+	for steps := 0; len(queue) > 0 && steps < 50; steps++ {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
+		}
+		switch msg := next().(type) {
+		case nil:
+		case tea.BatchMsg:
+			queue = append(queue, msg...)
+		default:
+			_, follow := m.Update(msg)
+			queue = append(queue, follow)
+		}
+	}
+}
+
+func TestBotsModelSkipsApprovedAndShowsStatus(t *testing.T) {
+	d := demo.New()
+	svc := bots.New(d.Info(), d)
+	m := newBotsModel(context.Background(), []botManager{svc}, false, func(string) error { return nil })
+	drain(m, m.Init())
+	drain(m, m.load(""))
+	for _, pr := range m.visible() {
+		m.selected[pr.ID] = true
+	}
+	if cmd := m.act(bots.ActionApprove, ""); cmd == nil {
+		t.Fatal("unapproved PRs were not submitted")
+	} else {
+		drain(m, cmd)
+	}
+	if m.rowState[303] != "" || !strings.Contains(m.notice, "approve:") {
+		t.Fatalf("rowState=%v notice=%q", m.rowState, m.notice)
+	}
+	for _, pr := range m.visible() {
+		if pr.ReviewState != "approved" {
+			t.Fatalf("%d not approved after job: %s", pr.ID, pr.ReviewState)
+		}
+	}
+	if cmd := m.act(bots.ActionApprove, ""); cmd != nil {
+		t.Fatal("approved PRs were submitted again")
 	}
 }
 
