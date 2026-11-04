@@ -43,6 +43,12 @@ const mergeText: Record<string, string> = { clean: "Mergeable", conflicting: "Co
 // The PR URL minus its /pull/N or /-/merge_requests/N tail is the repository page.
 const repoURL = (prURL: string) => prURL.replace(/\/(?:-\/)?(?:pull|merge_requests)\/\d+.*$/, "");
 
+// Recomputes the total from per-repo counts. Emptied repos stay in the list so page boundaries do not shift.
+const withCounts = (index: RepoIndex, counts: Map<string, number>): RepoIndex => {
+  const repos = index.repos.map((item) => (counts.has(item.repo) ? { ...item, count: counts.get(item.repo)! } : item));
+  return { ...index, repos, total: repos.reduce((sum, item) => sum + item.count, 0) };
+};
+
 const reviewText: Record<string, string> = { approved: "Approved", changes_requested: "Changes requested", review_required: "Review required", none: "No review" };
 
 const storageGet = (key: string, fallback: string) => { try { return window.localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
@@ -199,7 +205,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), repo });
       const data = await request<Listing>(`/api/bots?${params}`);
       const fresh = data.items ?? [];
-      setIndex((current) => (current ? { ...current, repos: current.repos.map((item) => (item.repo === repo ? { ...item, count: fresh.length } : item)), total: current.repos.reduce((sum, item) => sum + (item.repo === repo ? fresh.length : item.count), 0) } : current));
+      setIndex((current) => (current ? withCounts(current, new Map([[repo, fresh.length]])) : current));
       setListing((current) => {
         if (!current) return current;
         const others = current.items.filter((item) => item.repo !== repo);
@@ -266,6 +272,9 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         if (done.length > 0 && action === "merge") {
           const ids = new Set(done.map((item) => item.id));
           setListing((current) => (current ? { ...current, items: current.items.filter((item) => !ids.has(item.id)), totalCount: Math.max(0, current.totalCount - ids.size) } : current));
+          const gone = new Map<string, number>();
+          for (const item of listingRef.current?.items ?? []) if (ids.has(item.id)) gone.set(item.repo, (gone.get(item.repo) ?? 0) + 1);
+          setIndex((current) => (current ? withCounts(current, new Map([...gone].map(([repo, count]) => [repo, (current.repos.find((item) => item.repo === repo)?.count ?? 0) - count]))) : current));
           setSelected((current) => new Set([...current].filter((id) => !ids.has(id))));
         }
         if (done.length > 0 && action === "approve") {
@@ -396,7 +405,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             </div>
             {index && (
               <div className="bots-pager">
-                <span>{index.total} PR(s) in {index.repos.length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
+                <span>{index.total} PR(s) in {index.repos.filter((item) => item.count > 0).length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
                 <span className="bots-working bots-pager-loading" aria-hidden={!loading} style={{ visibility: loading ? "visible" : "hidden" }}><span className="spinner" /> Loading…</span>
                 {matching.length > repoPageSize && (
                   <>
