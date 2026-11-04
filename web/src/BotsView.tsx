@@ -40,6 +40,9 @@ const statusFilters = [
 ] as const;
 const ciText: Record<string, string> = { success: "CI passing", failure: "CI failing", pending: "CI running", none: "No CI", unknown: "CI unknown" };
 const mergeText: Record<string, string> = { clean: "Mergeable", conflicting: "Conflicts", blocked: "Blocked", behind: "Behind base", unknown: "Checking…" };
+// The PR URL minus its /pull/N or /-/merge_requests/N tail is the repository page.
+const repoURL = (prURL: string) => prURL.replace(/\/(?:-\/)?(?:pull|merge_requests)\/\d+.*$/, "");
+
 const reviewText: Record<string, string> = { approved: "Approved", changes_requested: "Changes requested", review_required: "Review required", none: "No review" };
 
 const storageGet = (key: string, fallback: string) => { try { return window.localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
@@ -414,7 +417,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <section className="bots-group" key={repo}>
                 <h3>
                   <button type="button" className="bots-chevron" aria-expanded={!collapsed.has(repo)} aria-label={`${collapsed.has(repo) ? "Expand" : "Collapse"} ${repo}`} onClick={() => toggleCollapsed(repo)}>{collapsed.has(repo) ? "▸" : "▾"}</button>
-                  <label><input type="checkbox" checked={items.every((item) => selected.has(item.id))} onChange={(event) => toggle(items.map((item) => item.id), event.target.checked)} /> {repo}</label>
+                  <label><input type="checkbox" aria-label={`Select ${repo}`} checked={items.every((item) => selected.has(item.id))} onChange={(event) => toggle(items.map((item) => item.id), event.target.checked)} /> </label>
+                  <a className="bots-repo-link" href={repoURL(items[0].html_url)} target="_blank" rel="noreferrer" title={`Open ${repo}`}>{repo}</a>
                   <button type="button" className="bots-chevron" title={`Refresh ${repo}`} aria-label={`Refresh ${repo}`} disabled={refreshing.has(repo)} onClick={() => void refreshRepo(repo)}>{refreshing.has(repo) ? "…" : "↻"}</button>
                   <span className="pr-number">{items.length}{items.some((item) => selected.has(item.id)) ? ` · ${items.filter((item) => selected.has(item.id)).length} selected` : ""}</span>
                 </h3>
