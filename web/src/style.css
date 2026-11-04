@@ -286,3 +286,8 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .job-label.job-failed { background: #ffe3e3; color: #b42318; }
 .bots-working { color: #8a5a00; }
 .bots-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; color: #596273; font-size: 13px; }
+.bots-row select { height: 32px; padding: 0 10px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; color: #343d4b; font-size: 12px; font-weight: 600; cursor: pointer; }
+.bots-row select:disabled { opacity: .5; cursor: not-allowed; }
+.bots-pager button { height: 32px; padding: 0 12px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; color: #343d4b; font-size: 12px; font-weight: 600; cursor: pointer; }
+.bots-pager button:disabled { opacity: .5; cursor: not-allowed; }
+.bots-collapse-all button { color: #343d4b; cursor: pointer; }

@@ -182,19 +182,24 @@ func TestBotPullRequestsRepoScope(t *testing.T) {
 }
 
 func TestBotReviewStateFallsBackToLatestReviews(t *testing.T) {
-	type reviews = []struct {
-		State string `json:"state"`
-	}
-	if got := botReviewState("", reviews{{State: "APPROVED"}}); got != provider.ReviewApproved {
+	type reviews = []botReview
+	if got := botReviewState("", "", reviews{{State: "APPROVED"}}); got != provider.ReviewApproved {
 		t.Fatalf("approved review without decision = %q", got)
 	}
-	if got := botReviewState("", reviews{{State: "APPROVED"}, {State: "CHANGES_REQUESTED"}}); got != provider.ReviewChangesRequested {
+	if got := botReviewState("", "", reviews{{State: "APPROVED"}, {State: "CHANGES_REQUESTED"}}); got != provider.ReviewChangesRequested {
 		t.Fatalf("changes requested = %q", got)
 	}
-	if got := botReviewState("REVIEW_REQUIRED", reviews{{State: "APPROVED"}}); got != provider.ReviewRequired {
+	if got := botReviewState("REVIEW_REQUIRED", "", reviews{{State: "APPROVED"}}); got != provider.ReviewRequired {
 		t.Fatalf("explicit decision must win, got %q", got)
 	}
-	if got := botReviewState("", nil); got != provider.ReviewNone {
+	stale := botReview{State: "APPROVED"}
+	stale.Commit = &struct {
+		Oid string `json:"oid"`
+	}{Oid: "old"}
+	if got := botReviewState("", "new", reviews{stale}); got != provider.ReviewNone {
+		t.Fatalf("approval of an older commit = %q", got)
+	}
+	if got := botReviewState("", "", nil); got != provider.ReviewNone {
 		t.Fatalf("no reviews = %q", got)
 	}
 }

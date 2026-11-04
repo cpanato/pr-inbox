@@ -44,7 +44,7 @@ func botAuthor(author string) (string, error) {
 
 const botSearchQuery = `query($q:String!,$n:Int!,$after:String){search(query:$q,type:ISSUE,first:$n,after:$after){
 issueCount pageInfo{hasNextPage endCursor}
-nodes{... on PullRequest{databaseId number title url createdAt updatedAt isDraft mergeable mergeStateStatus reviewDecision latestOpinionatedReviews(first:20){nodes{state}} headRefOid headRefName baseRefName
+nodes{... on PullRequest{databaseId number title url createdAt updatedAt isDraft mergeable mergeStateStatus reviewDecision latestOpinionatedReviews(first:20){nodes{state commit{oid}}} headRefOid headRefName baseRefName
 author{login} repository{nameWithOwner}
 commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}`
 
@@ -68,9 +68,7 @@ type botSearchResponse struct {
 				MergeStateStatus string    `json:"mergeStateStatus"`
 				ReviewDecision   string    `json:"reviewDecision"`
 				LatestReviews    struct {
-					Nodes []struct {
-						State string `json:"state"`
-					} `json:"nodes"`
+					Nodes []botReview `json:"nodes"`
 				} `json:"latestOpinionatedReviews"`
 				HeadRefOid  string `json:"headRefOid"`
 				HeadRefName string `json:"headRefName"`
@@ -113,9 +111,15 @@ func mergeability(mergeable, status string) string {
 
 // botReviewState falls back to the latest reviews when the repository does not
 // require reviews, because reviewDecision is then empty even if approved.
-func botReviewState(decision string, reviews []struct {
-	State string `json:"state"`
-}) string {
+type botReview struct {
+	State  string `json:"state"`
+	Commit *struct {
+		Oid string `json:"oid"`
+	} `json:"commit"`
+}
+
+// An approval of an older commit (before a rebase) does not count as approved.
+func botReviewState(decision, head string, reviews []botReview) string {
 	if state := decisionState(decision); state != provider.ReviewNone {
 		return state
 	}
@@ -125,7 +129,9 @@ func botReviewState(decision string, reviews []struct {
 		case "CHANGES_REQUESTED":
 			return provider.ReviewChangesRequested
 		case "APPROVED":
-			approved = true
+			if review.Commit == nil || head == "" || review.Commit.Oid == head {
+				approved = true
+			}
 		}
 	}
 	if approved {
@@ -205,7 +211,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 				},
 				HeadSHA:     node.HeadRefOid,
 				Mergeable:   mergeability(node.Mergeable, node.MergeStateStatus),
-				ReviewState: botReviewState(node.ReviewDecision, node.LatestReviews.Nodes),
+				ReviewState: botReviewState(node.ReviewDecision, node.HeadRefOid, node.LatestReviews.Nodes),
 				Branch:      node.HeadRefName,
 				BaseBranch:  node.BaseRefName,
 			})
