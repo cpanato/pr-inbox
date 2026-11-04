@@ -97,6 +97,34 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 	}, nil
 }
 
+// ListRepo lists the bot pull requests of a single repository and replaces
+// only that repository's remembered items, so refreshing one repo never
+// touches the rest of the list.
+func (s *Service) ListRepo(ctx context.Context, org, author, repo string) (Listing, error) {
+	org, author, repo = strings.TrimSpace(org), strings.TrimSpace(author), strings.TrimSpace(repo)
+	if org == "" || author == "" || repo == "" {
+		return Listing{}, errors.New("choose an organization, an author and a repository")
+	}
+	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Repo: repo}, listLimit)
+	if err != nil {
+		return Listing{}, err
+	}
+	s.mu.Lock()
+	for id, item := range s.listed {
+		if item.Repo == repo {
+			delete(s.listed, id)
+		}
+	}
+	for _, item := range result.Items {
+		s.listed[item.ID] = item
+	}
+	s.mu.Unlock()
+	return Listing{
+		Org: org, Author: author, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
+		FetchedAt: time.Now().UTC(), MergeMethods: s.p.MergeMethods(),
+	}, nil
+}
+
 // Act applies one action to a previously listed pull request.
 func (s *Service) Act(ctx context.Context, id int64, action, method, body string) error {
 	s.mu.Lock()

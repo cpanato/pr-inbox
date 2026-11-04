@@ -55,6 +55,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [method, setMethod] = useState("");
   const [comment, setComment] = useState("");
   const [confirmMerge, setConfirmMerge] = useState(false);
+  const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [customFor, setCustomFor] = useState<number | null>(null);
   const [customText, setCustomText] = useState("");
 
@@ -108,6 +110,35 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     for (const item of visible) map.set(item.repo, [...(map.get(item.repo) ?? []), item]);
     return [...map.entries()];
   }, [visible]);
+  const refreshRepo = async (repo: string) => {
+    if (refreshing.has(repo)) return;
+    setRefreshing((current) => new Set(current).add(repo));
+    try {
+      const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), repo });
+      const data = await request<Listing>(`/api/bots?${params}`);
+      const fresh = data.items ?? [];
+      setListing((current) => {
+        if (!current) return current;
+        const others = current.items.filter((item) => item.repo !== repo);
+        const before = current.items.length - others.length;
+        const items = [...others, ...fresh].sort((a, b) => a.repo.localeCompare(b.repo) || a.created_at.localeCompare(b.created_at));
+        return { ...current, items, totalCount: Math.max(items.length, current.totalCount - before + fresh.length), fetchedAt: data.fetchedAt };
+      });
+      const present = new Set(fresh.map((item) => item.id));
+      setSelected((current) => new Set([...current].filter((id) => present.has(id) || !visible.some((item) => item.id === id && item.repo === repo))));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : `Could not refresh ${repo}.`);
+    } finally {
+      setRefreshing((current) => { const next = new Set(current); next.delete(repo); return next; });
+    }
+  };
+
+  const toggleCollapsed = (repo: string) => setCollapsed((current) => {
+    const next = new Set(current);
+    if (!next.delete(repo)) next.add(repo);
+    return next;
+  });
+  const allCollapsed = groups.length > 0 && groups.every(([repo]) => collapsed.has(repo));
   const targets = visible.filter((item) => selected.has(item.id));
 
   const toggle = (ids: number[], on: boolean) => setSelected((current) => {
@@ -230,13 +261,20 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("comment", targets, comment.trim() || rebase)}>Comment</button>
             </div>
             {groups.length === 0 && <p className="subheading">No matching pull requests.</p>}
+            {groups.length > 1 && (
+              <div className="bots-collapse-all">
+                <button type="button" onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map(([repo]) => repo)))}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
+              </div>
+            )}
             {groups.map(([repo, items]) => (
               <section className="bots-group" key={repo}>
                 <h3>
+                  <button type="button" className="bots-chevron" aria-expanded={!collapsed.has(repo)} aria-label={`${collapsed.has(repo) ? "Expand" : "Collapse"} ${repo}`} onClick={() => toggleCollapsed(repo)}>{collapsed.has(repo) ? "▸" : "▾"}</button>
                   <label><input type="checkbox" checked={items.every((item) => selected.has(item.id))} onChange={(event) => toggle(items.map((item) => item.id), event.target.checked)} /> {repo}</label>
-                  <span className="pr-number">{items.length}</span>
+                  <button type="button" className="bots-chevron" title={`Refresh ${repo}`} aria-label={`Refresh ${repo}`} disabled={refreshing.has(repo)} onClick={() => void refreshRepo(repo)}>{refreshing.has(repo) ? "…" : "↻"}</button>
+                  <span className="pr-number">{items.length}{items.some((item) => selected.has(item.id)) ? ` · ${items.filter((item) => selected.has(item.id)).length} selected` : ""}</span>
                 </h3>
-                <ul className="pr-list">
+                {!collapsed.has(repo) && <ul className="pr-list">
                   {items.map((item) => (
                     <li className="pr-card bots-row" key={item.id}>
                       <input type="checkbox" aria-label={`Select ${repo}#${item.number}`} checked={selected.has(item.id)} onChange={(event) => toggle([item.id], event.target.checked)} />
@@ -276,7 +314,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                       </div>
                     </li>
                   ))}
-                </ul>
+                </ul>}
               </section>
             ))}
           </>

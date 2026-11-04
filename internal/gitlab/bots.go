@@ -54,6 +54,12 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 		"per_page": {strconv.Itoa(pageSize)}, "include_subgroups": {"true"}, "author_username": {author},
 	}
 	path := "/groups/" + url.PathEscape(query.Org) + "/merge_requests"
+	if query.Repo != "" {
+		if !strings.HasPrefix(query.Repo, query.Org+"/") || strings.Contains(query.Repo, "..") || !validGroup(query.Repo) {
+			return provider.BotResult{}, fmt.Errorf("invalid project %q", query.Repo)
+		}
+		path = "/projects/" + url.PathEscape(query.Repo) + "/merge_requests"
+	}
 	result := provider.BotResult{}
 	for page := 1; len(result.Items) < limit; page++ {
 		values.Set("page", strconv.Itoa(page))

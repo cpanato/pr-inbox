@@ -20,6 +20,8 @@ import (
 // on large organizations, which otherwise answers 502/504.
 const botPageSize = 25
 
+var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
+
 var authorPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,60}$`)
 
 // knownBots are searched as GitHub Apps ("app/<name>") when given without a
@@ -124,7 +126,15 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if err != nil {
 		return provider.BotResult{}, err
 	}
-	q := baseQuery + " org:" + query.Org + " author:" + author + " sort:created-asc"
+	scope := "org:" + query.Org
+	if query.Repo != "" {
+		owner, name, ok := strings.Cut(query.Repo, "/")
+		if !ok || !strings.EqualFold(owner, query.Org) || !repoNamePattern.MatchString(name) {
+			return provider.BotResult{}, fmt.Errorf("invalid repository %q", query.Repo)
+		}
+		scope = "repo:" + owner + "/" + name
+	}
+	q := baseQuery + " " + scope + " author:" + author + " sort:created-asc"
 	result := provider.BotResult{}
 	cursor := ""
 	for len(result.Items) < limit {
