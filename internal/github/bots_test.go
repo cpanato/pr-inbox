@@ -62,6 +62,9 @@ func TestBotPullRequestsAndActions(t *testing.T) {
 	if err := p.BotComment(context.Background(), pr, "@dependabot rebase"); err != nil {
 		t.Fatal(err)
 	}
+	if err := p.BotClose(context.Background(), pr); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.BotMerge(context.Background(), pr, "bogus"); err == nil {
 		t.Fatal("invalid merge method accepted")
 	}
@@ -70,6 +73,7 @@ func TestBotPullRequestsAndActions(t *testing.T) {
 		`POST /repos/acme/api/pulls/7/reviews {"commit_id":"abc","event":"APPROVE"}`,
 		`PUT /repos/acme/api/pulls/7/merge {"merge_method":"squash","sha":"abc"}`,
 		`POST /repos/acme/api/issues/7/comments {"body":"@dependabot rebase"}`,
+		`PATCH /repos/acme/api/pulls/7 {"state":"closed"}`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing request %q in\n%s", want, joined)

@@ -21,6 +21,7 @@ const (
 	ActionApprove = "approve"
 	ActionMerge   = "merge"
 	ActionComment = "comment"
+	ActionClose   = "close"
 )
 
 var (
@@ -182,7 +183,7 @@ func (s *Service) ListRepos(ctx context.Context, org, author string, repos []str
 // method and trimmed comment body.
 func (s *Service) validate(action, method, body string) (string, string, error) {
 	switch action {
-	case ActionApprove:
+	case ActionApprove, ActionClose:
 	case ActionMerge:
 		if method == "" {
 			method = s.p.MergeMethods()[0]
@@ -225,6 +226,8 @@ func (s *Service) Act(ctx context.Context, id int64, action, method, body string
 			return errors.New("this pull request has conflicts; comment to rebase it first")
 		}
 		return s.p.BotMerge(ctx, pr, method)
+	case ActionClose:
+		return s.p.BotClose(ctx, pr)
 	case ActionComment:
 		return s.p.BotComment(ctx, pr, body)
 	}
