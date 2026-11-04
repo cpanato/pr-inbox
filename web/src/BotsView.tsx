@@ -65,6 +65,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
+  const [paging, setPaging] = useState(false);
   const [index, setIndex] = useState<RepoIndex | null>(null);
   const [page, setPage] = useState(0);
   const [rowStatus, setRowStatus] = useState<Map<number, RowStatus>>(new Map());
@@ -96,6 +97,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     const seq = ++loadSeq.current;
     const stale = () => seq !== loadSeq.current;
     setLoading(true);
+    setPaging(false);
     setError("");
     if (!keep) { setListing(null); setIndex(null); setSelected(new Set()); }
     try {
@@ -142,6 +144,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     const seq = ++loadSeq.current;
     const stale = () => seq !== loadSeq.current;
     setLoading(true);
+    setPaging(true);
     setError("");
     try {
       await fetchPage(names.slice(bounded * repoPageSize, (bounded + 1) * repoPageSize), { provider: providerId, org: org.trim(), author: author.trim() }, false, stale);
@@ -149,7 +152,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     } catch (reason) {
       if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load this page.");
     } finally {
-      if (!stale()) setLoading(false);
+      if (!stale()) { setLoading(false); setPaging(false); }
     }
   };
 
@@ -309,6 +312,15 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     for (const id of activeJobs) void request("/api/bots/jobs/cancel", { method: "POST", body: JSON.stringify({ provider: providerId, id }) }, csrfToken).catch(() => undefined);
   };
 
+  const skeleton = (
+    <div className="bots-skeleton" role="status" aria-live="polite">
+            <p><span className="spinner" /> {paging ? "Loading repositories…" : `Loading ${org.trim() || "pull requests"}… listing repositories first, then pull requests.`}</p>
+            {[0, 1, 2].map((row) => (
+              <div className="skeleton-group" key={row}><i className="skeleton-title" /><i className="skeleton-row" /><i className="skeleton-row" /></div>
+            ))}
+          </div>
+  );
+
   if (available.length === 0) return <main className="center-state">No connected provider supports bot pull requests.</main>;
   const mention = `@${author.replace(/\[bot\]$/, "")}`;
   const rebase = `${mention} rebase`;
@@ -374,14 +386,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         {error && <p className="error-notice" role="alert">{error}</p>}
         {notice && <p className="bots-notice" role="status">{notice}</p>}
 
-        {loading && !listing && (
-          <div className="bots-skeleton" role="status" aria-live="polite">
-            <p><span className="spinner" /> Loading {org.trim() || "pull requests"}… listing repositories first, then pull requests.</p>
-            {[0, 1, 2].map((row) => (
-              <div className="skeleton-group" key={row}><i className="skeleton-title" /><i className="skeleton-row" /><i className="skeleton-row" /></div>
-            ))}
-          </div>
-        )}
+        {loading && !listing && skeleton}
         {listing && (
           <>
             <div className="bots-bar">
@@ -416,6 +421,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                 )}
               </div>
             )}
+            {paging ? skeleton : <>
             {groups.length === 0 && <p className="subheading">No matching pull requests.</p>}
             {groups.length > 1 && (
               <div className="bots-collapse-all">
@@ -475,6 +481,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                 </ul>}
               </section>
             ))}
+          </>}
           </>
         )}
       </main>
