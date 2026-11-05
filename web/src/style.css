@@ -267,8 +267,11 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .bots-group { margin-bottom: 22px; }
 .bots-group h3 { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
 .bots-group h3 label { display: flex; gap: 8px; align-items: center; }
-.bots-row { display: flex; align-items: center; gap: 12px; }
-.bots-row .pr-main { flex: 1; min-width: 0; }
+.bots-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.bots-row .pr-main { flex: 1 1 260px; min-width: 0; }
+.bots-row .pr-details { flex: 0 1 auto; max-width: 100%; min-width: 0; }
+.bots-row .pr-details > *, .job-label { white-space: nowrap; }
+.bots-row .bots-custom { flex-wrap: wrap; }
 .merge-label { padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #f0f2f5; color: #4b5565; }
 .merge-clean { background: #e3f6ee; color: var(--green); }
 .merge-conflicting { background: #fde8e6; color: #b3261e; }
@@ -306,3 +309,9 @@ h1 { margin-bottom: 7px; font: 700 31px -apple-system, BlinkMacSystemFont, "Sego
 .bots-chevron { width: 30px; height: 30px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; color: #343d4b; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .bots-chevron:hover:not(:disabled) { background: #f3f5f9; }
 .bots-chevron:disabled { opacity: .5; cursor: wait; }
+.bots-pagesize { display: inline-flex; align-items: center; gap: 6px; }
+.bots-pagesize select { height: 32px; padding: 0 8px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; font-size: 12px; }
+.bots-repopick { position: relative; }
+.bots-repopick summary { height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid #dfe3e9; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.bots-repopick-menu { position: absolute; z-index: 5; top: 38px; left: 0; display: flex; flex-direction: column; gap: 6px; min-width: 260px; max-height: 320px; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.bots-repopick-menu label { display: flex; gap: 6px; align-items: center; font-size: 12px; white-space: nowrap; }
