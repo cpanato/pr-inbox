@@ -94,7 +94,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [customFor, setCustomFor] = useState<number | null>(null);
   const [customText, setCustomText] = useState("");
 
@@ -246,12 +246,12 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     }
   };
 
-  const toggleCollapsed = (repo: string) => setCollapsed((current) => {
+  const toggleExpanded = (repo: string) => setExpanded((current) => {
     const next = new Set(current);
     if (!next.delete(repo)) next.add(repo);
     return next;
   });
-  const allCollapsed = groups.length > 0 && groups.every(([repo]) => collapsed.has(repo));
+  const allCollapsed = groups.length > 0 && groups.every(([repo]) => !expanded.has(repo));
   const targets = visible.filter((item) => selected.has(item.id));
 
   const toggle = (ids: number[], on: boolean) => setSelected((current) => {
@@ -473,19 +473,19 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             {groups.length === 0 && <p className="subheading">No matching pull requests.</p>}
             {groups.length > 1 && (
               <div className="bots-collapse-all">
-                <button type="button" onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map(([repo]) => repo)))}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
+                <button type="button" onClick={() => setExpanded(allCollapsed ? new Set(groups.map(([repo]) => repo)) : new Set())}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
               </div>
             )}
             {groups.map(([repo, items]) => (
               <section className="bots-group" key={repo}>
                 <h3>
-                  <button type="button" className="bots-chevron" aria-expanded={!collapsed.has(repo)} aria-label={`${collapsed.has(repo) ? "Expand" : "Collapse"} ${repo}`} onClick={() => toggleCollapsed(repo)}>{collapsed.has(repo) ? "▸" : "▾"}</button>
+                  <button type="button" className="bots-chevron" aria-expanded={expanded.has(repo)} aria-label={`${expanded.has(repo) ? "Collapse" : "Expand"} ${repo}`} onClick={() => toggleExpanded(repo)}>{expanded.has(repo) ? "▾" : "▸"}</button>
                   <label><input type="checkbox" aria-label={`Select ${repo}`} checked={items.every((item) => selected.has(item.id))} onChange={(event) => toggle(items.map((item) => item.id), event.target.checked)} /> </label>
                   <a className="bots-repo-link" href={repoURL(items[0].html_url)} target="_blank" rel="noreferrer" title={`Open ${repo}`}>{repo}</a>
                   <button type="button" className="bots-chevron" title={`Refresh ${repo}`} aria-label={`Refresh ${repo}`} disabled={refreshing.has(repo)} onClick={() => void refreshRepo(repo)}>{refreshing.has(repo) ? "…" : "↻"}</button>
                   <span className="pr-number">{items.length}{items.some((item) => selected.has(item.id)) ? ` · ${items.filter((item) => selected.has(item.id)).length} selected` : ""}</span>
                 </h3>
-                {!collapsed.has(repo) && <ul className="pr-list">
+                {expanded.has(repo) && <ul className="pr-list">
                   {items.map((item) => (
                     <li className="pr-card bots-row" key={item.id}>
                       <input type="checkbox" aria-label={`Select ${repo}#${item.number}`} checked={selected.has(item.id)} onChange={(event) => toggle([item.id], event.target.checked)} />
