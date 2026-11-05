@@ -410,7 +410,7 @@ Or download an archive from [Releases](https://github.com/cpanato/pr-inbox/relea
 
 ## Requirements
 
-- Go and Node.js 24 to build from source (not needed for a release binary).
+- Go and Node.js 26 to build from source (not needed for a release binary).
 - To see **GitHub**: the [GitHub CLI (`gh`)](https://cli.github.com/) logged in with
   `gh auth login`, or a `GITHUB_TOKEN` / `GH_TOKEN` environment variable.
 - To see **GitLab**: the [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) logged in
@@ -493,7 +493,7 @@ Notes:
 
 ## Development
 
-Building from source needs Go 1.27, Node.js 24.x with npm (see `.nvmrc`) for
+Building from source needs Go 1.27, Node.js 26.x with npm (see `.nvmrc`) for
 the embedded frontend, and an authenticated GitHub CLI (`gh`).
 
 ```sh
