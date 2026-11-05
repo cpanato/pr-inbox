@@ -21,9 +21,10 @@ type Job = { id: string; action: string; items: JobItem[]; finished: boolean };
 type RowStatus = { status: string; error?: string };
 type RepoIndex = { repos: { repo: string; count: number }[]; total: number; incomplete: boolean; fetchedAt: string };
 // Heavy details (CI, conflicts, reviews) load this many repositories at a time, which keeps huge orgs fast.
-const repoPageSize = 5;
+const defaultPageSize = 5;
+const pageSizeOptions = [5, 10, 20, 50];
 const rowStatusText: Record<string, string> = { queued: "Queued", running: "Working…", failed: "Failed" };
-const filterRepos = (index: RepoIndex, search: string) => index.repos.filter((item) => item.repo.toLowerCase().includes(search.trim().toLowerCase())).map((item) => item.repo);
+const filterRepos = (index: RepoIndex, search: string, picked: Set<string>) => index.repos.filter((item) => (picked.size === 0 || picked.has(item.repo)) && item.repo.toLowerCase().includes(search.trim().toLowerCase())).map((item) => item.repo);
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 type Listing = { org: string; author: string; items: BotPR[]; totalCount: number; incomplete: boolean; fetchedAt: string; mergeMethods: string[] };
@@ -74,6 +75,10 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const indexRef = useRef<RepoIndex | null>(null);
   const queryRef = useRef("");
   const pageRef = useRef(0);
+  const [pageSize, setPageSize] = useState(() => { const saved = Number(storageGet("bots.pageSize", "")); return pageSizeOptions.includes(saved) ? saved : defaultPageSize; });
+  const [pickedRepos, setPickedRepos] = useState<Set<string>>(new Set());
+  const pageSizeRef = useRef(pageSize);
+  const pickedRef = useRef(pickedRepos);
   // Only the newest load may update the screen, so a slow or failed request
   // for a previous organization can never overwrite or block the current one.
   const loadSeq = useRef(0);
@@ -107,10 +112,11 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       if (stale()) return;
       const fresh = { ...data, repos: data.repos ?? [] };
       setIndex(fresh);
-      const names = filterRepos(fresh, queryRef.current);
-      const pageNo = keep ? Math.min(pageRef.current, Math.max(0, Math.ceil(names.length / repoPageSize) - 1)) : 0;
+      const names = filterRepos(fresh, queryRef.current, pickedRef.current);
+      const size = pageSizeRef.current;
+      const pageNo = keep ? Math.min(pageRef.current, Math.max(0, Math.ceil(names.length / size) - 1)) : 0;
       setPage(pageNo);
-      await fetchPage(names.slice(pageNo * repoPageSize, (pageNo + 1) * repoPageSize), base, keep, stale);
+      await fetchPage(names.slice(pageNo * size, (pageNo + 1) * size), base, keep, stale);
       if (stale()) return;
       storageSet("bots.org", nextOrg.trim());
       storageSet("bots.author", nextAuthor.trim());
@@ -138,17 +144,17 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     });
   };
 
-  const goToPage = async (pageNo: number, source = index, search = query) => {
+  const goToPage = async (pageNo: number, source = index, search = query, size = pageSizeRef.current, picked = pickedRef.current) => {
     if (!source || loading) return;
-    const names = filterRepos(source, search);
-    const bounded = Math.max(0, Math.min(pageNo, Math.ceil(names.length / repoPageSize) - 1));
+    const names = filterRepos(source, search, picked);
+    const bounded = Math.max(0, Math.min(pageNo, Math.ceil(names.length / size) - 1));
     const seq = ++loadSeq.current;
     const stale = () => seq !== loadSeq.current;
     setLoading(true);
     setPaging(true);
     setError("");
     try {
-      await fetchPage(names.slice(bounded * repoPageSize, (bounded + 1) * repoPageSize), { provider: providerId, org: org.trim(), author: author.trim() }, false, stale);
+      await fetchPage(names.slice(bounded * size, (bounded + 1) * size), { provider: providerId, org: org.trim(), author: author.trim() }, false, stale);
       if (!stale()) setPage(bounded);
     } catch (reason) {
       if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load this page.");
@@ -164,6 +170,17 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
+
+  const changePageSize = (size: number) => {
+    setPageSize(size);
+    storageSet("bots.pageSize", String(size));
+    void goToPage(0, index, query, size);
+  };
+
+  const changePicked = (next: Set<string>) => {
+    setPickedRepos(next);
+    void goToPage(0, index, query, pageSize, next);
+  };
 
   useEffect(() => {
     if (!providerId) return;
@@ -185,6 +202,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   listingRef.current = listing;
   indexRef.current = index;
   queryRef.current = query;
+  pageSizeRef.current = pageSize;
+  pickedRef.current = pickedRepos;
   pageRef.current = page;
   contextRef.current = `${providerId}|${org.trim()}|${author.trim()}`;
   useEffect(() => () => { alive.current = false; }, []);
@@ -196,7 +215,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     if (status === "pending" && item.ci !== "pending") return false;
     return `${item.repo} ${item.title}`.toLowerCase().includes(query.toLowerCase());
   }), [listing, status, query]);
-  const matching = useMemo(() => (index ? filterRepos(index, query) : []), [index, query]);
+  const matching = useMemo(() => (index ? filterRepos(index, query, pickedRepos) : []), [index, query, pickedRepos]);
   const groups = useMemo(() => {
     const map = new Map<string, BotPR[]>();
     for (const item of visible) map.set(item.repo, [...(map.get(item.repo) ?? []), item]);
@@ -422,11 +441,30 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               <div className="bots-pager">
                 <span>{index.total} PR(s) in {index.repos.filter((item) => item.count > 0).length} repo(s){index.incomplete ? " (first results only)" : ""}</span>
                 <span className="bots-working bots-pager-loading" aria-hidden={!loading} style={{ visibility: loading ? "visible" : "hidden" }}><span className="spinner" /> Loading…</span>
-                {matching.length > repoPageSize && (
+                <label className="bots-pagesize">Repos per page
+                  <select value={pageSize} disabled={loading} onChange={(event) => changePageSize(Number(event.target.value))}>
+                    {pageSizeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <details className="bots-repopick">
+                  <summary>{pickedRepos.size === 0 ? "All repos" : `${pickedRepos.size} repo(s) selected`}</summary>
+                  <div className="bots-repopick-menu">
+                    <button type="button" disabled={loading || pickedRepos.size === 0} onClick={() => changePicked(new Set())}>Show all</button>
+                    {index.repos.map((item) => (
+                      <label key={item.repo}>
+                        <input type="checkbox" checked={pickedRepos.has(item.repo)} disabled={loading} onChange={(event) => { const next = new Set(pickedRepos); if (event.target.checked) next.add(item.repo); else next.delete(item.repo); changePicked(next); }} />
+                        {item.repo} ({item.count})
+                      </label>
+                    ))}
+                  </div>
+                </details>
+                {matching.length > pageSize && (
                   <>
+                    <button type="button" disabled={loading || page === 0} onClick={() => void goToPage(0)}>« First</button>
                     <button type="button" disabled={loading || page === 0} onClick={() => void goToPage(page - 1)}>‹ Prev</button>
-                    <span>Repos {page * repoPageSize + 1}–{Math.min(matching.length, (page + 1) * repoPageSize)} of {matching.length}</span>
-                    <button type="button" disabled={loading || (page + 1) * repoPageSize >= matching.length} onClick={() => void goToPage(page + 1)}>Next ›</button>
+                    <span>Repos {page * pageSize + 1}–{Math.min(matching.length, (page + 1) * pageSize)} of {matching.length}</span>
+                    <button type="button" disabled={loading || (page + 1) * pageSize >= matching.length} onClick={() => void goToPage(page + 1)}>Next ›</button>
+                    <button type="button" disabled={loading || (page + 1) * pageSize >= matching.length} onClick={() => void goToPage(Math.ceil(matching.length / pageSize) - 1)}>Last »</button>
                   </>
                 )}
               </div>
