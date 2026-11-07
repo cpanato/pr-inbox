@@ -82,11 +82,11 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 	if !orgPattern.MatchString(query.Org) {
 		return provider.BotRepoResult{}, fmt.Errorf("invalid organization name %q", query.Org)
 	}
-	author, err := botAuthor(query.Author)
+	filters, err := botFilters(query)
 	if err != nil {
 		return provider.BotRepoResult{}, err
 	}
-	q := baseQuery + " org:" + query.Org + " author:" + author
+	q := baseQuery + " org:" + query.Org + filters
 	counts := map[string]int{}
 	total, seen, cursor := 0, 0, ""
 	incomplete := false

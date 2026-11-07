@@ -70,7 +70,7 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		h.respond(w, http.StatusOK, map[string]any{"orgs": orgs})
 	case "/api/bots/repos":
-		repos, err := service.Repos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
+		repos, err := service.Repos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), r.URL.Query().Get("label"))
 		if err != nil {
 			h.writeError(w, http.StatusBadGateway, "provider_error", err.Error())
 			return
@@ -80,9 +80,9 @@ func (h *Handler) botsAPI(w http.ResponseWriter, r *http.Request) {
 		var listing bots.Listing
 		var err error
 		if repos := r.URL.Query()["repo"]; len(repos) > 0 {
-			listing, err = service.ListRepos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), repos)
+			listing, err = service.ListRepos(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), repos, r.URL.Query().Get("label"))
 		} else {
-			listing, err = service.List(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"))
+			listing, err = service.List(ctx, r.URL.Query().Get("org"), r.URL.Query().Get("author"), r.URL.Query().Get("label"))
 		}
 		if err != nil {
 			h.writeError(w, http.StatusBadGateway, "provider_error", err.Error())

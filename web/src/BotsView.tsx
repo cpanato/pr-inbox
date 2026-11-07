@@ -64,6 +64,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [org, setOrg] = useState(() => storageGet("bots.org", ""));
   const [customOrg, setCustomOrg] = useState(false);
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
+  const [label, setLabel] = useState(() => storageGet("bots.label", ""));
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
   const [paging, setPaging] = useState(false);
@@ -99,7 +100,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [customText, setCustomText] = useState("");
 
   const load = useCallback(async (nextOrg: string, nextAuthor: string, keep = false) => {
-    if (!nextOrg.trim() || !nextAuthor.trim()) return;
+    if (!nextOrg.trim() || (!nextAuthor.trim() && !label.trim())) return;
     const seq = ++loadSeq.current;
     const stale = () => seq !== loadSeq.current;
     setLoading(true);
@@ -107,7 +108,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     setError("");
     if (!keep) { setListing(null); setIndex(null); setSelected(new Set()); }
     try {
-      const base = { provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim() };
+      const base = { provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim(), label: label.trim() };
       const data = await request<RepoIndex>(`/api/bots/repos?${new URLSearchParams(base)}`);
       if (stale()) return;
       const fresh = { ...data, repos: data.repos ?? [] };
@@ -120,15 +121,16 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       if (stale()) return;
       storageSet("bots.org", nextOrg.trim());
       storageSet("bots.author", nextAuthor.trim());
+      storageSet("bots.label", label.trim());
     } catch (reason) {
       if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load pull requests.");
     } finally {
       if (!stale()) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId]);
+  }, [providerId, label]);
 
-  const fetchPage = async (names: string[], base: { provider: string; org: string; author: string }, keep: boolean, stale: () => boolean) => {
+  const fetchPage = async (names: string[], base: { provider: string; org: string; author: string; label: string }, keep: boolean, stale: () => boolean) => {
     let data: Listing = { org: base.org, author: base.author, items: [], totalCount: 0, incomplete: false, fetchedAt: new Date().toISOString(), mergeMethods: listingRef.current?.mergeMethods ?? [] };
     if (names.length > 0) {
       const params = new URLSearchParams(base);
@@ -154,7 +156,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     setPaging(true);
     setError("");
     try {
-      await fetchPage(names.slice(bounded * size, (bounded + 1) * size), { provider: providerId, org: org.trim(), author: author.trim() }, false, stale);
+      await fetchPage(names.slice(bounded * size, (bounded + 1) * size), { provider: providerId, org: org.trim(), author: author.trim(), label: label.trim() }, false, stale);
       if (!stale()) setPage(bounded);
     } catch (reason) {
       if (!stale()) setError(reason instanceof Error ? reason.message : "Could not load this page.");
@@ -205,7 +207,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   pageSizeRef.current = pageSize;
   pickedRef.current = pickedRepos;
   pageRef.current = page;
-  contextRef.current = `${providerId}|${org.trim()}|${author.trim()}`;
+  contextRef.current = `${providerId}|${org.trim()}|${author.trim()}|${label.trim()}`;
   useEffect(() => () => { alive.current = false; }, []);
 
   const visible = useMemo(() => (listing?.items ?? []).filter((item) => {
@@ -225,7 +227,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
     if (refreshing.has(repo)) return;
     setRefreshing((current) => new Set(current).add(repo));
     try {
-      const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), repo });
+      const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), label: label.trim(), repo });
       const data = await request<Listing>(`/api/bots?${params}`);
       const fresh = data.items ?? [];
       setIndex((current) => (current ? withCounts(current, new Map([[repo, fresh.length]])) : current));
@@ -344,7 +346,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
 
   if (available.length === 0) return <main className="center-state">No connected provider supports bot pull requests.</main>;
   const mention = `@${author.replace(/\[bot\]$/, "")}`;
-  const rebase = `${mention} rebase`;
+  const rebase = author.trim() ? `${mention} rebase` : "";
   const disabled = readOnly;
 
   return (
@@ -391,8 +393,12 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             </label>
           )}
           <label>Author
-            <input list="bots-authors" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="dependabot" required />
+            <input list="bots-authors" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="Any author" required={!label.trim()} />
             <datalist id="bots-authors">{authorPresets.map((name) => <option key={name} value={name} />)}</datalist>
+          </label>
+          <label>Label
+            <input list="bots-labels" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Any label" required={!author.trim()} />
+            <datalist id="bots-labels"><option value="renovate" /><option value="dependencies" /></datalist>
           </label>
           <label>Status (this page)
             <select value={status} onChange={(event) => setStatus(event.target.value)}>
@@ -403,6 +409,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
           <button className="refresh-button" type="submit" disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           {listing && <span className="bots-updated">Updated {new Date(listing.fetchedAt).toLocaleTimeString()}</span>}
         </form>
+        <p className="bots-notice">Clear Author to match a label from any account. Set both to match author and label.</p>
 
         {error && <p className="error-notice" role="alert">{error}</p>}
         {notice && <p className="bots-notice" role="status">{notice}</p>}
@@ -434,8 +441,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
               ) : (
                 <button type="button" disabled={disabled || targets.length === 0} onClick={() => { setConfirmMerge(false); setConfirmClose(true); }}>Close PR…</button>
               )}
-              <input aria-label="Comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder={rebase} />
-              <button type="button" disabled={disabled || targets.length === 0} onClick={() => void run("comment", targets, comment.trim() || rebase)}>Comment</button>
+              <input aria-label="Comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder={rebase || "Comment on selected PRs"} />
+              <button type="button" disabled={disabled || targets.length === 0 || !(comment.trim() || rebase)} onClick={() => void run("comment", targets, comment.trim() || rebase)}>Comment</button>
             </div>
             {index && (
               <div className="bots-pager">
@@ -501,22 +508,22 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
                         {(
                           customFor === item.id ? (
                             <form className="bots-custom" onSubmit={(event) => { event.preventDefault(); if (customText.trim()) { void run("comment", [item], customText.trim()); setCustomFor(null); } }}>
-                              <input aria-label="Custom command" value={customText} onChange={(event) => setCustomText(event.target.value)} placeholder={`${mention} …`} autoFocus />
+                              <input aria-label="Custom command" value={customText} onChange={(event) => setCustomText(event.target.value)} placeholder={`@${item.author.replace(/\[bot\]$/, "")} …`} autoFocus />
                               <button type="submit" disabled={disabled || !customText.trim()}>Send</button>
                               <button type="button" onClick={() => setCustomFor(null)}>Cancel</button>
                             </form>
                           ) : (
                             <select
-                              aria-label={`Ask ${author} to…`}
+                              aria-label={`Ask ${item.author} to…`}
                               value=""
                               disabled={disabled || isActive(item.id)}
                               onChange={(event) => {
                                 const value = event.target.value;
-                                if (value === "custom") { setCustomText(`${mention} `); setCustomFor(item.id); }
-                                else if (value) void run("comment", [item], `${mention} ${value}`);
+                                if (value === "custom") { setCustomText(`@${item.author.replace(/\[bot\]$/, "")} `); setCustomFor(item.id); }
+                                else if (value) void run("comment", [item], `@${item.author.replace(/\[bot\]$/, "")} ${value}`);
                               }}
                             >
-                              <option value="">Ask {author} to…</option>
+                              <option value="">Ask {item.author} to…</option>
                               <option value="rebase">Rebase</option>
                               <option value="recreate">Recreate</option>
                               <option value="custom">Custom command…</option>

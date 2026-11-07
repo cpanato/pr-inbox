@@ -156,7 +156,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if !orgPattern.MatchString(query.Org) {
 		return provider.BotResult{}, fmt.Errorf("invalid organization name %q", query.Org)
 	}
-	author, err := botAuthor(query.Author)
+	filters, err := botFilters(query)
 	if err != nil {
 		return provider.BotResult{}, err
 	}
@@ -164,7 +164,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if err != nil {
 		return provider.BotResult{}, err
 	}
-	q := baseQuery + " " + scope + " author:" + author + " sort:created-asc"
+	q := baseQuery + " " + scope + filters + " sort:created-asc"
 	result := provider.BotResult{}
 	cursor := ""
 	for len(result.Items) < limit {
@@ -379,4 +379,27 @@ func (c *Client) send(ctx context.Context, method, path string, payload any) err
 		message = http.StatusText(response.StatusCode)
 	}
 	return &statusError{status: response.StatusCode, message: fmt.Sprintf("GitHub rejected the request (%d): %s", response.StatusCode, message)}
+}
+
+// botFilters keeps label-only searches independent of the account opening PRs.
+// Quote the label so spaces and search qualifiers remain literal label text.
+func botFilters(query provider.BotQuery) (string, error) {
+	if query.Author == "" && query.Label == "" {
+		return "", fmt.Errorf("choose an author or label")
+	}
+	filters := ""
+	if query.Author != "" {
+		author, err := botAuthor(query.Author)
+		if err != nil {
+			return "", err
+		}
+		filters += " author:" + author
+	}
+	if query.Label != "" {
+		if err := provider.ValidateBotLabel(query.Label); err != nil {
+			return "", err
+		}
+		filters += ` label:"` + query.Label + `"`
+	}
+	return filters, nil
 }

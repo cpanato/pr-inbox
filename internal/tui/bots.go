@@ -23,8 +23,8 @@ import (
 type botManager interface {
 	Info() provider.Info
 	Orgs(context.Context) ([]string, error)
-	Repos(ctx context.Context, org, author string) (bots.RepoListing, error)
-	ListRepos(ctx context.Context, org, author string, repos []string) (bots.Listing, error)
+	Repos(ctx context.Context, org, author, label string) (bots.RepoListing, error)
+	ListRepos(ctx context.Context, org, author string, repos []string, label string) (bots.Listing, error)
 	Submit(ids []int64, action, method, body string) (bots.Job, error)
 	Job(id string) (bots.Job, error)
 }
@@ -34,6 +34,7 @@ type botInputKind int
 const (
 	inputNone botInputKind = iota
 	inputOrg
+	inputLabel
 	inputAuthor
 	inputComment
 	inputFilter
@@ -88,15 +89,15 @@ type botsModel struct {
 	readOnly bool
 	opener   func(string) error
 
-	org, author string
-	orgs        []string
-	listing     *bots.Listing
-	index       *bots.RepoListing
-	page        int
-	loading     bool
-	err, notice string
-	rowState    map[int64]string
-	jobs        map[string]*botsJobState
+	org, author, label string
+	orgs               []string
+	listing            *bots.Listing
+	index              *bots.RepoListing
+	page               int
+	loading            bool
+	err, notice        string
+	rowState           map[int64]string
+	jobs               map[string]*botsJobState
 
 	cursor        int
 	selected      map[int64]bool
@@ -156,16 +157,16 @@ func (m *botsModel) load(notice string) tea.Cmd { return m.loadAt(notice, 0, nil
 // loadAt loads one page of repositories. A nil index is fetched first, which
 // is the cheap overview; only the page's repositories load CI and review data.
 func (m *botsModel) loadAt(notice string, page int, index *bots.RepoListing) tea.Cmd {
-	if m.org == "" || m.author == "" {
+	if m.org == "" || (m.author == "" && m.label == "") {
 		return nil
 	}
 	m.loading = true
-	service, root, org, author := m.services[m.active], m.ctx, m.org, m.author
+	service, root, org, author, label := m.services[m.active], m.ctx, m.org, m.author, m.label
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(root, 2*time.Minute)
 		defer cancel()
 		if index == nil {
-			fetched, err := service.Repos(ctx, org, author)
+			fetched, err := service.Repos(ctx, org, author, label)
 			if err != nil {
 				return botsLoadedMsg{err: err}
 			}
@@ -176,10 +177,10 @@ func (m *botsModel) loadAt(notice string, page int, index *bots.RepoListing) tea
 		for _, repo := range index.Repos[min(len(index.Repos), page*botsRepoPageSize):min(len(index.Repos), (page+1)*botsRepoPageSize)] {
 			names = append(names, repo.Repo)
 		}
-		listing := bots.Listing{Org: org, Author: author, Items: []provider.BotPullRequest{}, FetchedAt: time.Now().UTC()}
+		listing := bots.Listing{Org: org, Author: author, Label: label, Items: []provider.BotPullRequest{}, FetchedAt: time.Now().UTC()}
 		if len(names) > 0 {
 			var err error
-			if listing, err = service.ListRepos(ctx, org, author, names); err != nil {
+			if listing, err = service.ListRepos(ctx, org, author, names, label); err != nil {
 				return botsLoadedMsg{err: err}
 			}
 		}
@@ -233,8 +234,25 @@ func (m *botsModel) targets() []provider.BotPullRequest {
 }
 
 func (m *botsModel) act(action, body string) tea.Cmd {
-	targets := []provider.BotPullRequest{}
+	return m.actTargets(action, body, m.targets())
+}
+
+// Bot commands mention each PR's author, including in mixed-author label results.
+func (m *botsModel) botCommand(command string) tea.Cmd {
+	byAuthor := map[string][]provider.BotPullRequest{}
 	for _, pr := range m.targets() {
+		byAuthor[pr.Author] = append(byAuthor[pr.Author], pr)
+	}
+	cmds := []tea.Cmd{}
+	for author, targets := range byAuthor {
+		cmds = append(cmds, m.actTargets(bots.ActionComment, "@"+strings.TrimSuffix(author, "[bot]")+" "+command, targets))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *botsModel) actTargets(action, body string, candidates []provider.BotPullRequest) tea.Cmd {
+	targets := []provider.BotPullRequest{}
+	for _, pr := range candidates {
 		if m.rowState[pr.ID] != "" || (action == bots.ActionApprove && pr.ReviewState == provider.ReviewApproved) {
 			continue
 		}
@@ -270,11 +288,11 @@ func (m *botsModel) poll(id string) tea.Cmd {
 }
 
 func (m *botsModel) refreshRepo(repo string) tea.Cmd {
-	service, root, org, author := m.services[m.active], m.ctx, m.org, m.author
+	service, root, org, author, label := m.services[m.active], m.ctx, m.org, m.author, m.label
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(root, 45*time.Second)
 		defer cancel()
-		listing, err := service.ListRepos(ctx, org, author, []string{repo})
+		listing, err := service.ListRepos(ctx, org, author, []string{repo}, label)
 		return botsRepoMsg{repo: repo, listing: listing, err: err}
 	}
 }
@@ -491,8 +509,11 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					m.org, m.listing, m.cursor = value, nil, 0
 					return m, m.load("")
 				}
+			case inputLabel:
+				m.label, m.listing, m.cursor = value, nil, 0
+				return m, m.load("")
 			case inputAuthor:
-				if value != "" {
+				if value != "" || m.label != "" {
 					m.author, m.listing, m.cursor = value, nil, 0
 					return m, m.load("")
 				}
@@ -571,8 +592,10 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.startInput(inputFilter, m.query, "Filter: ")
 	case "o":
 		return m, m.startInput(inputOrg, m.org, "Organization ("+strings.Join(m.orgs, ", ")+"): ")
+	case "l":
+		return m, m.startInput(inputLabel, m.label, "Label (renovate, dependencies, …; blank to clear): ")
 	case "u":
-		return m, m.startInput(inputAuthor, m.author, "Author (dependabot, renovate, …): ")
+		return m, m.startInput(inputAuthor, m.author, "Author (dependabot, renovate, …; blank for any when label is set): ")
 	case "[", "]":
 		step := 1
 		if msg.String() == "[" {
@@ -633,9 +656,9 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.method = (m.method + 1) % len(m.listing.MergeMethods)
 			}
 		case "b":
-			return m, m.act(bots.ActionComment, "@"+strings.TrimSuffix(m.author, "[bot]")+" rebase")
+			return m, m.botCommand("rebase")
 		case "R":
-			return m, m.act(bots.ActionComment, "@"+strings.TrimSuffix(m.author, "[bot]")+" recreate")
+			return m, m.botCommand("recreate")
 		case "c":
 			return m, m.startInput(inputComment, "", "Comment: ")
 		}
@@ -689,7 +712,7 @@ func (m *botsModel) View() tea.View {
 
 	info := m.services[m.active].Info()
 	lines := []string{
-		clip(accent.Render("Bot PRs") + muted.Render(fmt.Sprintf("  %s · org %s · author %s · status %s · merge %s", info.Name, safe(m.org), safe(m.author), botStatusFilters[m.filter], m.methodName()))),
+		clip(accent.Render("Bot PRs") + muted.Render(fmt.Sprintf("  %s · org %s · author %s · label %s · status %s · merge %s", info.Name, safe(m.org), safe(m.author), safe(m.label), botStatusFilters[m.filter], m.methodName()))),
 		"",
 	}
 	if m.index != nil && len(m.index.Repos) > botsRepoPageSize {
@@ -771,7 +794,7 @@ func (m *botsModel) View() tea.View {
 	case m.confirm != "":
 		footer = append(footer, amber.Render(m.confirm))
 	default:
-		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · [ ] provider")))
+		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · l label · [ ] provider")))
 		footer = append(footer, muted.Render(clip("a approve · m merge · X close · n/p page · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
 	}
 	for len(lines)+len(footer) < m.height {

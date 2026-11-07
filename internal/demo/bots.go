@@ -67,7 +67,7 @@ func (c *Client) BotPullRequests(_ context.Context, q provider.BotQuery, limit i
 		if len(q.Repos) > 0 && !slices.Contains(q.Repos, pr.Repo) {
 			continue
 		}
-		if strings.HasPrefix(pr.Repo, strings.ToLower(q.Org)+"/") && strings.HasPrefix(strings.ToLower(q.Author), "dependabot") {
+		if strings.HasPrefix(pr.Repo, strings.ToLower(q.Org)+"/") && (q.Author == "" || strings.HasPrefix(strings.ToLower(q.Author), "dependabot")) && (q.Label == "" || q.Label == "dependencies") {
 			out = append(out, pr)
 		}
 	}
@@ -75,7 +75,7 @@ func (c *Client) BotPullRequests(_ context.Context, q provider.BotQuery, limit i
 }
 
 func (c *Client) BotRepos(ctx context.Context, q provider.BotQuery) (provider.BotRepoResult, error) {
-	result, err := c.BotPullRequests(ctx, provider.BotQuery{Org: q.Org, Author: q.Author}, 1000)
+	result, err := c.BotPullRequests(ctx, provider.BotQuery{Org: q.Org, Author: q.Author, Label: q.Label}, 1000)
 	if err != nil {
 		return provider.BotRepoResult{}, err
 	}

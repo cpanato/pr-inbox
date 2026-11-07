@@ -232,3 +232,56 @@ func TestBotReposCountsPerRepository(t *testing.T) {
 		t.Fatal("invalid org should be rejected")
 	}
 }
+
+func TestBotLabelFilters(t *testing.T) {
+	for _, tc := range []struct{ author, label, want string }{
+		{"", "renovate", ` label:"renovate"`},
+		{"", "dependencies", ` label:"dependencies"`},
+		{"", "type: dependencies", ` label:"type: dependencies"`},
+		{"renovate", "dependencies", ` author:app/renovate label:"dependencies"`},
+	} {
+		t.Run(tc.author+"/"+tc.label, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Variables struct {
+						Q string `json:"q"`
+					} `json:"variables"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				want := baseQuery + " org:acme" + tc.want
+				if calls > 0 {
+					want = baseQuery + " repo:acme/api" + tc.want + " sort:created-asc"
+				}
+				if body.Variables.Q != want {
+					t.Errorf("query=%q want %q", body.Variables.Q, want)
+				}
+				calls++
+				_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}`))
+			}))
+			defer server.Close()
+			client := NewClient("token")
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			p := NewProvider(client, provider.Viewer{ID: 1, Login: "me"})
+			q := provider.BotQuery{Org: "acme", Author: tc.author, Label: tc.label}
+			if _, err := p.BotRepos(context.Background(), q); err != nil {
+				t.Fatal(err)
+			}
+			q.Repos = []string{"acme/api"}
+			if _, err := p.BotPullRequests(context.Background(), q, 10); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 2 {
+				t.Fatalf("calls=%d", calls)
+			}
+		})
+	}
+	for _, label := range []string{"", `renovate" org:other`, "dependencies,bug", "renovate\norg:other", `a\b`, strings.Repeat("x", 256)} {
+		if _, err := botFilters(provider.BotQuery{Label: label}); err == nil {
+			t.Errorf("invalid label accepted: %q", label)
+		}
+	}
+}

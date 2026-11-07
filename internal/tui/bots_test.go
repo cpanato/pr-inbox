@@ -92,3 +92,25 @@ func plain2(m *botsModel) string { return plain2View(m.View().Content) }
 func plain2View(s string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\x1b", " ")), " ")
 }
+
+func TestBotsModelLabelOnly(t *testing.T) {
+	d := demo.New()
+	svc := bots.New(d.Info(), d)
+	m := newBotsModel(context.Background(), []botManager{svc}, false, func(string) error { return nil })
+	m.org = "acme"
+	_, cmd := m.Update(key('l'))
+	if m.inputing != inputLabel {
+		t.Fatal("label key did not open input")
+	}
+	_ = cmd
+	m.input.SetValue("dependencies")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	drain(m, cmd)
+	_, cmd = m.Update(key('u'))
+	m.input.SetValue("")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	drain(m, cmd)
+	if m.author != "" || m.label != "dependencies" || m.listing == nil || len(m.visible()) == 0 {
+		t.Fatalf("label-only listing: author=%q label=%q listing=%+v", m.author, m.label, m.listing)
+	}
+}

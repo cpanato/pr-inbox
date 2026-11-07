@@ -10,7 +10,7 @@ import (
 func TestCloseRemovesPullRequest(t *testing.T) {
 	d := demo.New()
 	s := New(d.Info(), d)
-	if _, err := s.List(context.Background(), "acme", "dependabot"); err != nil {
+	if _, err := s.List(context.Background(), "acme", "dependabot", ""); err != nil {
 		t.Fatal(err)
 	}
 	job, err := s.Submit([]int64{303}, ActionClose, "", "")
@@ -21,7 +21,7 @@ func TestCloseRemovesPullRequest(t *testing.T) {
 	if job.Items[0].Status != StatusDone {
 		t.Fatalf("job = %+v", job)
 	}
-	after, err := s.List(context.Background(), "acme", "dependabot")
+	after, err := s.List(context.Background(), "acme", "dependabot", "")
 	if err != nil {
 		t.Fatal(err)
 	}

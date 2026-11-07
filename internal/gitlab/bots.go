@@ -46,13 +46,25 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if !validGroup(query.Org) {
 		return provider.BotResult{}, fmt.Errorf("invalid group name %q", query.Org)
 	}
+	if err := provider.ValidateBotLabel(query.Label); err != nil {
+		return provider.BotResult{}, err
+	}
 	author := strings.TrimSuffix(strings.TrimSpace(query.Author), "[bot]")
-	if !usernamePattern.MatchString(author) {
+	if author == "" && query.Label == "" {
+		return provider.BotResult{}, fmt.Errorf("choose an author or label")
+	}
+	if author != "" && !usernamePattern.MatchString(author) {
 		return provider.BotResult{}, fmt.Errorf("invalid author %q", query.Author)
 	}
 	values := url.Values{
 		"state": {"opened"}, "scope": {"all"}, "order_by": {"created_at"}, "sort": {"asc"},
-		"per_page": {strconv.Itoa(pageSize)}, "include_subgroups": {"true"}, "author_username": {author},
+		"per_page": {strconv.Itoa(pageSize)}, "include_subgroups": {"true"},
+	}
+	if author != "" {
+		values.Set("author_username", author)
+	}
+	if query.Label != "" {
+		values.Set("labels", query.Label)
 	}
 	paths := []string{"/groups/" + url.PathEscape(query.Org) + "/merge_requests"}
 	if len(query.Repos) > 0 {
@@ -129,13 +141,25 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 	if !validGroup(query.Org) {
 		return provider.BotRepoResult{}, fmt.Errorf("invalid group name %q", query.Org)
 	}
+	if err := provider.ValidateBotLabel(query.Label); err != nil {
+		return provider.BotRepoResult{}, err
+	}
 	author := strings.TrimSuffix(strings.TrimSpace(query.Author), "[bot]")
-	if !usernamePattern.MatchString(author) {
+	if author == "" && query.Label == "" {
+		return provider.BotRepoResult{}, fmt.Errorf("choose an author or label")
+	}
+	if author != "" && !usernamePattern.MatchString(author) {
 		return provider.BotRepoResult{}, fmt.Errorf("invalid author %q", query.Author)
 	}
 	values := url.Values{
 		"state": {"opened"}, "scope": {"all"}, "per_page": {strconv.Itoa(pageSize)},
-		"include_subgroups": {"true"}, "author_username": {author},
+		"include_subgroups": {"true"},
+	}
+	if author != "" {
+		values.Set("author_username", author)
+	}
+	if query.Label != "" {
+		values.Set("labels", query.Label)
 	}
 	counts := map[string]int{}
 	incomplete := false
