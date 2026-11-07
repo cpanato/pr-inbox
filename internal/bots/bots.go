@@ -37,7 +37,7 @@ type Service struct {
 
 	mu     sync.Mutex
 	listed map[int64]provider.BotPullRequest
-	// queries remembers which org and author listed each item, so a single
+	// queries remembers which org, author and label listed each item, so a single
 	// pull request can be re-read right before it is merged.
 	queries map[int64]provider.BotQuery
 
@@ -47,6 +47,7 @@ type Service struct {
 type Listing struct {
 	Org          string                    `json:"org"`
 	Author       string                    `json:"author"`
+	Label        string                    `json:"label"`
 	Items        []provider.BotPullRequest `json:"items"`
 	TotalCount   int                       `json:"totalCount"`
 	Incomplete   bool                      `json:"incomplete"`
@@ -77,19 +78,19 @@ func (s *Service) Orgs(ctx context.Context) ([]string, error) {
 	return orgs, nil
 }
 
-func (s *Service) List(ctx context.Context, org, author string) (Listing, error) {
-	org, author = strings.TrimSpace(org), strings.TrimSpace(author)
-	if org == "" || author == "" {
-		return Listing{}, errors.New("choose an organization and an author")
+func (s *Service) List(ctx context.Context, org, author, label string) (Listing, error) {
+	org, author, label = strings.TrimSpace(org), strings.TrimSpace(author), strings.TrimSpace(label)
+	if org == "" || (author == "" && label == "") {
+		return Listing{}, errors.New("choose an organization and an author or label")
 	}
-	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author}, listLimit)
+	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Label: label}, listLimit)
 	if err != nil {
 		return Listing{}, err
 	}
 	s.mu.Lock()
 	for _, item := range result.Items {
 		s.listed[item.ID] = item
-		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author}
+		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author, Label: label}
 	}
 	s.mu.Unlock()
 	sort.SliceStable(result.Items, func(i, j int) bool {
@@ -99,7 +100,7 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 		return result.Items[i].CreatedAt.Before(result.Items[j].CreatedAt)
 	})
 	return Listing{
-		Org: org, Author: author, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
+		Org: org, Author: author, Label: label, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
 		FetchedAt: time.Now().UTC(), MergeMethods: s.p.MergeMethods(),
 	}, nil
 }
@@ -108,6 +109,7 @@ func (s *Service) List(ctx context.Context, org, author string) (Listing, error)
 type RepoListing struct {
 	Org        string             `json:"org"`
 	Author     string             `json:"author"`
+	Label      string             `json:"label"`
 	Repos      []provider.BotRepo `json:"repos"`
 	Total      int                `json:"total"`
 	Incomplete bool               `json:"incomplete"`
@@ -116,12 +118,12 @@ type RepoListing struct {
 
 // Repos lists which repositories have open PRs, without CI or review details,
 // so a huge organization can be paged through a few repositories at a time.
-func (s *Service) Repos(ctx context.Context, org, author string) (RepoListing, error) {
-	org, author = strings.TrimSpace(org), strings.TrimSpace(author)
-	if org == "" || author == "" {
-		return RepoListing{}, errors.New("choose an organization and an author")
+func (s *Service) Repos(ctx context.Context, org, author, label string) (RepoListing, error) {
+	org, author, label = strings.TrimSpace(org), strings.TrimSpace(author), strings.TrimSpace(label)
+	if org == "" || (author == "" && label == "") {
+		return RepoListing{}, errors.New("choose an organization and an author or label")
 	}
-	result, err := s.p.BotRepos(ctx, provider.BotQuery{Org: org, Author: author})
+	result, err := s.p.BotRepos(ctx, provider.BotQuery{Org: org, Author: author, Label: label})
 	if err != nil {
 		return RepoListing{}, err
 	}
@@ -132,16 +134,16 @@ func (s *Service) Repos(ctx context.Context, org, author string) (RepoListing, e
 	if result.Repos == nil {
 		result.Repos = []provider.BotRepo{}
 	}
-	return RepoListing{Org: org, Author: author, Repos: result.Repos, Total: total, Incomplete: result.Incomplete, FetchedAt: time.Now().UTC()}, nil
+	return RepoListing{Org: org, Author: author, Label: label, Repos: result.Repos, Total: total, Incomplete: result.Incomplete, FetchedAt: time.Now().UTC()}, nil
 }
 
 // ListRepos lists the bot pull requests of a few repositories and replaces
 // only those repositories' remembered items, so loading a page or refreshing
 // one repo never touches the rest.
-func (s *Service) ListRepos(ctx context.Context, org, author string, repos []string) (Listing, error) {
-	org, author = strings.TrimSpace(org), strings.TrimSpace(author)
-	if org == "" || author == "" || len(repos) == 0 {
-		return Listing{}, errors.New("choose an organization, an author and a repository")
+func (s *Service) ListRepos(ctx context.Context, org, author string, repos []string, label string) (Listing, error) {
+	org, author, label = strings.TrimSpace(org), strings.TrimSpace(author), strings.TrimSpace(label)
+	if org == "" || (author == "" && label == "") || len(repos) == 0 {
+		return Listing{}, errors.New("choose an organization, an author or label, and a repository")
 	}
 	if len(repos) > provider.MaxBotRepos {
 		return Listing{}, fmt.Errorf("at most %d repositories per request", provider.MaxBotRepos)
@@ -151,7 +153,7 @@ func (s *Service) ListRepos(ctx context.Context, org, author string, repos []str
 		repos[i] = strings.TrimSpace(repo)
 		wanted[repos[i]] = true
 	}
-	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Repos: repos}, listLimit)
+	result, err := s.p.BotPullRequests(ctx, provider.BotQuery{Org: org, Author: author, Label: label, Repos: repos}, listLimit)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -164,7 +166,7 @@ func (s *Service) ListRepos(ctx context.Context, org, author string, repos []str
 	}
 	for _, item := range result.Items {
 		s.listed[item.ID] = item
-		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author}
+		s.queries[item.ID] = provider.BotQuery{Org: org, Author: author, Label: label}
 	}
 	s.mu.Unlock()
 	sort.SliceStable(result.Items, func(i, j int) bool {
@@ -174,7 +176,7 @@ func (s *Service) ListRepos(ctx context.Context, org, author string, repos []str
 		return result.Items[i].CreatedAt.Before(result.Items[j].CreatedAt)
 	})
 	return Listing{
-		Org: org, Author: author, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
+		Org: org, Author: author, Label: label, Items: nonNil(result.Items), TotalCount: result.TotalCount, Incomplete: result.Incomplete,
 		FetchedAt: time.Now().UTC(), MergeMethods: s.p.MergeMethods(),
 	}, nil
 }

@@ -317,8 +317,11 @@ pr-inbox bots --demo   # sample data
 ```
 
 No flags are needed: choose the organization (your orgs are suggested), the
-author (`dependabot`, `renovate` or any login) and a status filter in the
-interface. Open PRs are grouped by repository with CI status, mergeability
+author (`dependabot`, `renovate` or any login) or a label (`renovate`,
+`dependencies` or any exact label name), and a status filter in the interface.
+Clear the author to find labeled PRs from any account, including custom Renovate
+users. When both author and label are set, PRs must match both. The browser
+remembers your label filter. Open PRs are grouped by repository with CI status, mergeability
 (conflicts are highlighted) and review state. Select PRs individually, per
 repository or all at once, then **Approve**, **Merge** (with a confirmation
 and a merge method), **Close PR** (with a confirmation) or **Comment** (for example `@dependabot rebase`; every PR has an "Ask… to"
@@ -337,7 +340,7 @@ search); if GitHub times out, the PRs loaded so far are shown.
 methods are merge and squash; write actions need a token with the `api` scope).
 
 Terminal keys: `j/k` move, `x` select, `*` select all, `f` status filter, `/`
-search, `o` organization, `u` author, `a` approve, `m` merge (`M` changes the
+search, `o` organization, `u` author, `l` label (blank clears it), `a` approve, `m` merge (`M` changes the
 method), `X` close without merging, `b` rebase, `R` recreate, `c` custom comment, `enter` open, `r` refresh, `n`/`p`
 next/previous page, `[`/`]` provider.
 

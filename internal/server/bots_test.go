@@ -89,3 +89,25 @@ func TestBotsJobs(t *testing.T) {
 		t.Fatalf("read-only: %d", rec.Code)
 	}
 }
+
+func TestBotsLabelOnlyEndpoints(t *testing.T) {
+	h, csrf, cookie := botsSession(t, false)
+	for _, path := range []string{
+		"/api/bots/repos?org=acme&label=dependencies",
+		"/api/bots?org=acme&label=dependencies",
+		"/api/bots?org=acme&label=dependencies&repo=acme/api",
+	} {
+		rec := botsRequest(h, cookie, csrf, http.MethodGet, path, "")
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"label":"dependencies"`) || !strings.Contains(rec.Body.String(), "acme/api") {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	rec := botsRequest(h, cookie, csrf, http.MethodGet, "/api/bots?org=acme&label=unrelated", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("unmatched label: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = botsRequest(h, cookie, csrf, http.MethodGet, "/api/bots?org=acme", "")
+	if rec.Code == 200 {
+		t.Fatal("query without author or label accepted")
+	}
+}

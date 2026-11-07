@@ -15,7 +15,7 @@ func TestActOnlyListedItems(t *testing.T) {
 	if err := s.Act(context.Background(), 301, ActionApprove, "", ""); !errors.Is(err, ErrUnknownItem) {
 		t.Fatalf("unlisted item accepted: %v", err)
 	}
-	listing, err := s.List(context.Background(), "acme", "dependabot")
+	listing, err := s.List(context.Background(), "acme", "dependabot", "")
 	if err != nil || len(listing.Items) != 5 {
 		t.Fatalf("listing=%+v err=%v", listing, err)
 	}
@@ -31,7 +31,7 @@ func TestActOnlyListedItems(t *testing.T) {
 	if err := s.Act(context.Background(), 304, ActionComment, "", "@dependabot rebase"); err != nil {
 		t.Fatal(err)
 	}
-	listing, _ = s.List(context.Background(), "acme", "dependabot")
+	listing, _ = s.List(context.Background(), "acme", "dependabot", "")
 	if len(listing.Items) != 4 {
 		t.Fatalf("merged PR still listed: %d", len(listing.Items))
 	}
@@ -41,13 +41,13 @@ func TestListReposReplacesOnlyThoseRepos(t *testing.T) {
 	d := demo.New()
 	s := New(d.Info(), d)
 	ctx := context.Background()
-	if _, err := s.List(ctx, "acme", "dependabot"); err != nil {
+	if _, err := s.List(ctx, "acme", "dependabot", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Act(ctx, 305, ActionMerge, "squash", ""); err != nil {
 		t.Fatal(err)
 	}
-	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/infra"})
+	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/infra"}, "")
 	if err != nil || len(listing.Items) != 0 {
 		t.Fatalf("listing=%+v err=%v", listing, err)
 	}
@@ -57,7 +57,7 @@ func TestListReposReplacesOnlyThoseRepos(t *testing.T) {
 	if err := s.Act(ctx, 303, ActionApprove, "", ""); err != nil {
 		t.Fatalf("other repos must stay actionable, got %v", err)
 	}
-	if _, err := s.ListRepos(ctx, "acme", "dependabot", nil); err == nil {
+	if _, err := s.ListRepos(ctx, "acme", "dependabot", nil, ""); err == nil {
 		t.Fatal("empty repo should be rejected")
 	}
 }
@@ -84,7 +84,7 @@ func TestSubmitRunsJobInBackground(t *testing.T) {
 	if _, err := s.Submit([]int64{999}, ActionApprove, "", ""); !errors.Is(err, ErrUnknownItem) {
 		t.Fatalf("unlisted item accepted: %v", err)
 	}
-	if _, err := s.List(context.Background(), "acme", "dependabot"); err != nil {
+	if _, err := s.List(context.Background(), "acme", "dependabot", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Submit([]int64{302}, "bogus", "", ""); !errors.Is(err, ErrBadAction) {
@@ -110,7 +110,7 @@ func TestSubmitRunsJobInBackground(t *testing.T) {
 func TestCancelJobSkipsQueuedItems(t *testing.T) {
 	d := demo.New()
 	s := New(d.Info(), d)
-	if _, err := s.List(context.Background(), "acme", "dependabot"); err != nil {
+	if _, err := s.List(context.Background(), "acme", "dependabot", ""); err != nil {
 		t.Fatal(err)
 	}
 	lock := s.jobs.repoLock("acme/web")
@@ -135,14 +135,14 @@ func TestReposIndexAndPagedListing(t *testing.T) {
 	d := demo.New()
 	s := New(d.Info(), d)
 	ctx := context.Background()
-	index, err := s.Repos(ctx, "acme", "dependabot")
+	index, err := s.Repos(ctx, "acme", "dependabot", "")
 	if err != nil || len(index.Repos) == 0 || index.Total == 0 {
 		t.Fatalf("index=%+v err=%v", index, err)
 	}
-	if _, err := s.Repos(ctx, "", "dependabot"); err == nil {
+	if _, err := s.Repos(ctx, "", "dependabot", ""); err == nil {
 		t.Fatal("empty org should be rejected")
 	}
-	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/api", "acme/web"})
+	listing, err := s.ListRepos(ctx, "acme", "dependabot", []string{"acme/api", "acme/web"}, "")
 	if err != nil || len(listing.Items) < 2 {
 		t.Fatalf("listing=%+v err=%v", listing, err)
 	}
@@ -158,7 +158,7 @@ func TestReposIndexAndPagedListing(t *testing.T) {
 	for i := range tooMany {
 		tooMany[i] = "acme/r"
 	}
-	if _, err := s.ListRepos(ctx, "acme", "dependabot", tooMany); err == nil {
+	if _, err := s.ListRepos(ctx, "acme", "dependabot", tooMany, ""); err == nil {
 		t.Fatal("too many repos should be rejected")
 	}
 }

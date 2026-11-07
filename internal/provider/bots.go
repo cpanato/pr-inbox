@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
+	"unicode"
 )
 
 // Mergeability of a change request as reported by the host.
@@ -34,11 +36,13 @@ var (
 	ErrBotInvalid      = errors.New("invalid bot pull request action")
 )
 
-// BotQuery selects open change requests opened by an automation account (for
-// example dependabot) inside one organization or group.
+// BotQuery selects open change requests by author, label, or both inside one
+// organization or group. At least one of Author or Label is required.
 type BotQuery struct {
 	Org    string
 	Author string
+	// Label optionally matches an exact label, independently of the author.
+	Label string
 	// Repos optionally narrows the query to a few repositories ("owner/name"),
 	// which must belong to Org. It keeps paging and refreshing cheap in huge orgs.
 	Repos []string
@@ -92,4 +96,12 @@ type BotProvider interface {
 	// BotClose closes the pull request without merging it.
 	BotClose(ctx context.Context, pr BotPullRequest) error
 	MergeMethods() []string
+}
+
+// ValidateBotLabel validates a single literal label across provider search APIs.
+func ValidateBotLabel(label string) error {
+	if len(label) > 255 || strings.ContainsAny(label, "\"\\,") || strings.IndexFunc(label, unicode.IsControl) >= 0 {
+		return errors.New("label must be at most 255 bytes and cannot contain quotes, backslashes, commas or control characters")
+	}
+	return nil
 }
