@@ -316,7 +316,8 @@ pr-inbox bots --tui    # terminal UI
 pr-inbox bots --demo   # sample data
 ```
 
-No flags are needed: choose the organization (your orgs are suggested), the
+No flags are needed: choose the organization or account (your orgs and the
+personal account authenticated by your GitHub token are suggested), the
 author (`dependabot`, `renovate` or any login) or a label (`renovate`,
 `dependencies` or any exact label name), and a status filter in the interface.
 Clear the author to find labeled PRs from any account, including custom Renovate

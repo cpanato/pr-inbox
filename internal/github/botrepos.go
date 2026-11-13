@@ -10,11 +10,20 @@ import (
 	"github.com/cpanato/pr-inbox/internal/provider"
 )
 
-// botScope is org:<org>, or one repo:<owner>/<name> qualifier per requested
-// repository (GitHub ORs them), each validated to belong to the org.
-func botScope(query provider.BotQuery) (string, error) {
+// botOwnerScope includes repositories owned by the authenticated personal
+// account as well as organizations.
+func (p *Provider) botOwnerScope(owner string) string {
+	if strings.EqualFold(owner, p.info.Viewer.Login) {
+		return "user:" + owner
+	}
+	return "org:" + owner
+}
+
+// botScope selects an owner, or one repo:<owner>/<name> qualifier per requested
+// repository (GitHub ORs them), each validated to belong to the owner.
+func (p *Provider) botScope(query provider.BotQuery) (string, error) {
 	if len(query.Repos) == 0 {
-		return "org:" + query.Org, nil
+		return p.botOwnerScope(query.Org), nil
 	}
 	if len(query.Repos) > provider.MaxBotRepos {
 		return "", fmt.Errorf("at most %d repositories per request", provider.MaxBotRepos)
@@ -86,7 +95,7 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 	if err != nil {
 		return provider.BotRepoResult{}, err
 	}
-	q := baseQuery + " org:" + query.Org + filters
+	q := baseQuery + " " + p.botOwnerScope(query.Org) + filters
 	counts := map[string]int{}
 	total, seen, cursor := 0, 0, ""
 	incomplete := false

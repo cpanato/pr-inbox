@@ -372,7 +372,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
         )}
         <div className="page-heading"><div><p className="eyebrow">AUTOMATION PULL REQUESTS</p><h1>Bot PRs by repository</h1></div></div>
         <form className="bots-form" onSubmit={(event) => { event.preventDefault(); void load(org, author, true); }}>
-          <label>Organization
+          <label>Organization or account
             <select
               value={customOrg ? otherOrg : org}
               onChange={(event) => {
@@ -388,7 +388,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
             </select>
           </label>
           {customOrg && (
-            <label>Other organization
+            <label>Other organization or account
               <input value={org} onChange={(event) => setOrg(event.target.value)} placeholder="my-org" required autoFocus />
             </label>
           )}

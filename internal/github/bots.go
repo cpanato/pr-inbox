@@ -160,7 +160,7 @@ func (p *Provider) BotPullRequests(ctx context.Context, query provider.BotQuery,
 	if err != nil {
 		return provider.BotResult{}, err
 	}
-	scope, err := botScope(query)
+	scope, err := p.botScope(query)
 	if err != nil {
 		return provider.BotResult{}, err
 	}
@@ -233,6 +233,9 @@ func (p *Provider) BotOrgs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	names := make([]string, 0, len(orgs)+1)
+	if p.info.Viewer.Login != "" {
+		names = append(names, p.info.Viewer.Login)
+	}
 	for _, org := range orgs {
 		names = append(names, org.Login)
 	}
