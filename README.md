@@ -321,7 +321,10 @@ personal account authenticated by your GitHub token are suggested), the
 author (`dependabot`, `renovate` or any login) or a label (`renovate`,
 `dependencies` or any exact label name), and a status filter in the interface.
 Clear the author to find labeled PRs from any account, including custom Renovate
-users. When both author and label are set, PRs must match both. The browser
+users. Personal GitHub accounts hide fork repositories by default. Use the
+**Repositories** selector to show all repositories or forks only; the browser
+remembers your choice. In the terminal, press `F` to cycle these choices.
+When both author and label are set, PRs must match both. The browser
 remembers your label filter. Open PRs are grouped by repository with CI status, mergeability
 (conflicts are highlighted) and review state. Select PRs individually, per
 repository or all at once, then **Approve**, **Merge** (with a confirmation

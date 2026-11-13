@@ -55,6 +55,7 @@ const MaxBotRepos = 10
 type BotRepo struct {
 	Repo  string `json:"repo"`
 	Count int    `json:"count"`
+	Fork  bool   `json:"fork"`
 }
 
 type BotRepoResult struct {

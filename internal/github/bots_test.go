@@ -296,7 +296,10 @@ func TestBotReposCountsPerRepository(t *testing.T) {
 		if !strings.Contains(string(data), "org:acme") {
 			t.Errorf("query not scoped to the org: %s", data)
 		}
-		_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":3,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"repository":{"nameWithOwner":"acme/web"}},{"repository":{"nameWithOwner":"acme/api"}},{"repository":{"nameWithOwner":"acme/web"}}]}}}`))
+		if !strings.Contains(string(data), "isFork") {
+			t.Errorf("query does not request repository fork status: %s", data)
+		}
+		_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":3,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"repository":{"nameWithOwner":"acme/web","isFork":true}},{"repository":{"nameWithOwner":"acme/api","isFork":false}},{"repository":{"nameWithOwner":"acme/web","isFork":true}}]}}}`))
 	}))
 	defer server.Close()
 	client := NewClient("token")
@@ -307,7 +310,7 @@ func TestBotReposCountsPerRepository(t *testing.T) {
 	if err != nil || result.Incomplete || len(result.Repos) != 2 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if result.Repos[0] != (provider.BotRepo{Repo: "acme/api", Count: 1}) || result.Repos[1] != (provider.BotRepo{Repo: "acme/web", Count: 2}) {
+	if result.Repos[0] != (provider.BotRepo{Repo: "acme/api", Count: 1}) || result.Repos[1] != (provider.BotRepo{Repo: "acme/web", Count: 2, Fork: true}) {
 		t.Fatalf("unexpected counts: %+v", result.Repos)
 	}
 	if _, err := p.BotRepos(context.Background(), provider.BotQuery{Org: "bad org", Author: "dependabot"}); err == nil {
