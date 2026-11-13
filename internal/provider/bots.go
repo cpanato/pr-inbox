@@ -37,7 +37,7 @@ var (
 )
 
 // BotQuery selects open change requests by author, label, or both inside one
-// organization or group. At least one of Author or Label is required.
+// organization, personal account, or group. At least one of Author or Label is required.
 type BotQuery struct {
 	Org    string
 	Author string
@@ -83,8 +83,8 @@ type BotResult struct {
 // on them. Actions are pinned to the head commit that was listed, so a PR that
 // changed in the meantime is never approved or merged unseen.
 type BotProvider interface {
-	// BotOrgs lists the organizations (groups) the viewer belongs to, so the
-	// UI can offer them as choices instead of requiring command-line flags.
+	// BotOrgs lists the organizations (groups) the viewer belongs to and, for
+	// GitHub, their personal account, so the UI can offer them as choices.
 	BotOrgs(ctx context.Context) ([]string, error)
 	// BotRepos is a cheap query listing which repositories have open
 	// automation PRs, without CI or review details.

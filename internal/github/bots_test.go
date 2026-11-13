@@ -6,11 +6,93 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/cpanato/pr-inbox/internal/provider"
 )
+
+func TestBotOrgsIncludesAuthenticatedAccount(t *testing.T) {
+	for _, tc := range []struct {
+		name, login, response string
+		want                  []string
+	}{
+		{"with organizations", "token-owner", `[{"login":"acme"},{"login":"example"}]`, []string{"token-owner", "acme", "example"}},
+		{"without organizations", "token-owner", `[]`, []string{"token-owner"}},
+		{"without viewer", "", `[{"login":"acme"}]`, []string{"acme"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/user/orgs" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer server.Close()
+			client := NewClient("token")
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			p := NewProvider(client, provider.Viewer{Login: tc.login})
+			got, err := p.BotOrgs(context.Background())
+			if err != nil || !slices.Equal(got, tc.want) {
+				t.Fatalf("BotOrgs() = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBotSearchOwnerScopes(t *testing.T) {
+	for _, tc := range []struct{ owner, scope string }{
+		{"token-owner", "user:token-owner"},
+		{"TOKEN-OWNER", "user:TOKEN-OWNER"},
+		{"acme", "org:acme"},
+	} {
+		t.Run(tc.owner, func(t *testing.T) {
+			var queries []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Variables struct {
+						Q string `json:"q"`
+					} `json:"variables"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				queries = append(queries, body.Variables.Q)
+				_, _ = w.Write([]byte(`{"data":{"search":{"issueCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}`))
+			}))
+			defer server.Close()
+			client := NewClient("token")
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			p := NewProvider(client, provider.Viewer{Login: "token-owner"})
+			q := provider.BotQuery{Org: tc.owner, Author: "dependabot"}
+			if _, err := p.BotRepos(context.Background(), q); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.BotPullRequests(context.Background(), q, 10); err != nil {
+				t.Fatal(err)
+			}
+			q.Repos = []string{tc.owner + "/api"}
+			if _, err := p.BotPullRequests(context.Background(), q, 10); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{
+				baseQuery + " " + tc.scope + " author:app/dependabot",
+				baseQuery + " " + tc.scope + " author:app/dependabot sort:created-asc",
+				baseQuery + " repo:" + tc.owner + "/api author:app/dependabot sort:created-asc",
+			}
+			if !slices.Equal(queries, want) {
+				t.Errorf("queries = %q; want %q", queries, want)
+			}
+			q.Repos = []string{"other/api"}
+			if _, err := p.BotPullRequests(context.Background(), q, 10); err == nil {
+				t.Fatal("repository belonging to another owner accepted")
+			}
+		})
+	}
+}
 
 func TestBotAuthor(t *testing.T) {
 	for in, want := range map[string]string{"dependabot": "app/dependabot", "dependabot[bot]": "app/dependabot", "app/renovate": "app/renovate", "some-user": "some-user"} {

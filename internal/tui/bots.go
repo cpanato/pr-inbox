@@ -373,7 +373,7 @@ func (m *botsModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.org == "" {
-			return m, m.startInput(inputOrg, "", "Organization: ")
+			return m, m.startInput(inputOrg, "", "Organization or account: ")
 		}
 	case botsLoadedMsg:
 		m.loading = false
@@ -591,7 +591,7 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		return m, m.startInput(inputFilter, m.query, "Filter: ")
 	case "o":
-		return m, m.startInput(inputOrg, m.org, "Organization ("+strings.Join(m.orgs, ", ")+"): ")
+		return m, m.startInput(inputOrg, m.org, "Organization or account ("+strings.Join(m.orgs, ", ")+"): ")
 	case "l":
 		return m, m.startInput(inputLabel, m.label, "Label (renovate, dependencies, …; blank to clear): ")
 	case "u":
@@ -727,7 +727,7 @@ func (m *botsModel) View() tea.View {
 	case m.loading && m.listing == nil:
 		lines = append(lines, accent.Render("⏳ Loading "+safe(m.org)+"…")+muted.Render(" listing repositories, then pull requests"))
 	case m.org == "":
-		lines = append(lines, "Press o to choose an organization.")
+		lines = append(lines, "Press o to choose an organization or account.")
 	case len(items) == 0:
 		lines = append(lines, "No matching pull requests.")
 	}
