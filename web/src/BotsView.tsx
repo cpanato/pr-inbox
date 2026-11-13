@@ -19,7 +19,8 @@ type BotPR = {
 type JobItem = { id: number; repo: string; number: number; status: string; error?: string };
 type Job = { id: string; action: string; items: JobItem[]; finished: boolean };
 type RowStatus = { status: string; error?: string };
-type RepoIndex = { repos: { repo: string; count: number }[]; total: number; incomplete: boolean; fetchedAt: string };
+type RepoIndex = { repos: { repo: string; count: number; fork: boolean }[]; total: number; incomplete: boolean; fetchedAt: string };
+type ForkFilter = "exclude" | "all" | "only";
 // Heavy details (CI, conflicts, reviews) load this many repositories at a time, which keeps huge orgs fast.
 const defaultPageSize = 5;
 const pageSizeOptions = [5, 10, 20, 50];
@@ -65,6 +66,11 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [customOrg, setCustomOrg] = useState(false);
   const [author, setAuthor] = useState(() => storageGet("bots.author", "dependabot"));
   const [label, setLabel] = useState(() => storageGet("bots.label", ""));
+  const [forkFilter, setForkFilter] = useState<ForkFilter>(() => {
+    const saved = storageGet("bots.forks", "exclude");
+    return saved === "all" || saved === "only" ? saved : "exclude";
+  });
+  const isPersonalAccount = (name: string) => available.some((item) => item.id === providerId && item.kind === "github" && item.viewer.toLowerCase() === name.trim().toLowerCase());
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
   const [paging, setPaging] = useState(false);
@@ -99,7 +105,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   const [customFor, setCustomFor] = useState<number | null>(null);
   const [customText, setCustomText] = useState("");
 
-  const load = useCallback(async (nextOrg: string, nextAuthor: string, keep = false) => {
+  const load = useCallback(async (nextOrg: string, nextAuthor: string, keep = false, nextForkFilter = forkFilter) => {
     if (!nextOrg.trim() || (!nextAuthor.trim() && !label.trim())) return;
     const seq = ++loadSeq.current;
     const stale = () => seq !== loadSeq.current;
@@ -111,7 +117,8 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       const base = { provider: providerId, org: nextOrg.trim(), author: nextAuthor.trim(), label: label.trim() };
       const data = await request<RepoIndex>(`/api/bots/repos?${new URLSearchParams(base)}`);
       if (stale()) return;
-      const fresh = { ...data, repos: data.repos ?? [] };
+      const repos = (data.repos ?? []).filter((item) => !isPersonalAccount(nextOrg) || nextForkFilter === "all" || (nextForkFilter === "only" ? item.fork : !item.fork));
+      const fresh = { ...data, repos, total: repos.reduce((sum, item) => sum + item.count, 0) };
       setIndex(fresh);
       const names = filterRepos(fresh, queryRef.current, pickedRef.current);
       const size = pageSizeRef.current;
@@ -128,7 +135,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
       if (!stale()) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId, label]);
+  }, [providerId, label, forkFilter, providers]);
 
   const fetchPage = async (names: string[], base: { provider: string; org: string; author: string; label: string }, keep: boolean, stale: () => boolean) => {
     let data: Listing = { org: base.org, author: base.author, items: [], totalCount: 0, incomplete: false, fetchedAt: new Date().toISOString(), mergeMethods: listingRef.current?.mergeMethods ?? [] };
@@ -207,7 +214,7 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   pageSizeRef.current = pageSize;
   pickedRef.current = pickedRepos;
   pageRef.current = page;
-  contextRef.current = `${providerId}|${org.trim()}|${author.trim()}|${label.trim()}`;
+  contextRef.current = `${providerId}|${org.trim()}|${author.trim()}|${label.trim()}|${isPersonalAccount(org) ? forkFilter : "all"}`;
   useEffect(() => () => { alive.current = false; }, []);
 
   const visible = useMemo(() => (listing?.items ?? []).filter((item) => {
@@ -225,10 +232,12 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
   }, [visible]);
   const refreshRepo = async (repo: string) => {
     if (refreshing.has(repo)) return;
+    const context = contextRef.current;
     setRefreshing((current) => new Set(current).add(repo));
     try {
       const params = new URLSearchParams({ provider: providerId, org: org.trim(), author: author.trim(), label: label.trim(), repo });
       const data = await request<Listing>(`/api/bots?${params}`);
+      if (contextRef.current !== context) return;
       const fresh = data.items ?? [];
       setIndex((current) => (current ? withCounts(current, new Map([[repo, fresh.length]])) : current));
       setListing((current) => {
@@ -390,6 +399,22 @@ export function BotsView({ providers, csrfToken, readOnly }: Props) {
           {customOrg && (
             <label>Other organization or account
               <input value={org} onChange={(event) => setOrg(event.target.value)} placeholder="my-org" required autoFocus />
+            </label>
+          )}
+          {isPersonalAccount(org) && (
+            <label>Repositories
+              <select value={forkFilter} onChange={(event) => {
+                const value = event.target.value as ForkFilter;
+                setForkFilter(value);
+                storageSet("bots.forks", value);
+                setPickedRepos(new Set());
+                pickedRef.current = new Set();
+                void load(org, author, false, value);
+              }}>
+                <option value="exclude">Hide forks</option>
+                <option value="all">All repositories</option>
+                <option value="only">Forks only</option>
+              </select>
             </label>
           )}
           <label>Author

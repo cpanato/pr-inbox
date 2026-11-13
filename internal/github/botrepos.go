@@ -41,7 +41,7 @@ func (p *Provider) botScope(query provider.BotQuery) (string, error) {
 
 const botRepoQuery = `query($q:String!,$after:String){search(query:$q,type:ISSUE,first:100,after:$after){
 issueCount pageInfo{hasNextPage endCursor}
-nodes{... on PullRequest{repository{nameWithOwner}}}}}`
+nodes{... on PullRequest{repository{nameWithOwner isFork}}}}}`
 
 // botRepoPages bounds the scan; GitHub search returns at most 1000 results.
 const botRepoPages = 10
@@ -57,6 +57,7 @@ type botRepoResponse struct {
 			Nodes []struct {
 				Repository struct {
 					NameWithOwner string `json:"nameWithOwner"`
+					IsFork        bool   `json:"isFork"`
 				} `json:"repository"`
 			} `json:"nodes"`
 		} `json:"search"`
@@ -97,6 +98,7 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 	}
 	q := baseQuery + " " + p.botOwnerScope(query.Org) + filters
 	counts := map[string]int{}
+	forks := map[string]bool{}
 	total, seen, cursor := 0, 0, ""
 	incomplete := false
 	for page := 0; page < botRepoPages; page++ {
@@ -113,6 +115,7 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 		for _, node := range search.Nodes {
 			if node.Repository.NameWithOwner != "" {
 				counts[node.Repository.NameWithOwner]++
+				forks[node.Repository.NameWithOwner] = node.Repository.IsFork
 				seen++
 			}
 		}
@@ -123,7 +126,7 @@ func (p *Provider) BotRepos(ctx context.Context, query provider.BotQuery) (provi
 	}
 	repos := make([]provider.BotRepo, 0, len(counts))
 	for repo, count := range counts {
-		repos = append(repos, provider.BotRepo{Repo: repo, Count: count})
+		repos = append(repos, provider.BotRepo{Repo: repo, Count: count, Fork: forks[repo]})
 	}
 	sort.Slice(repos, func(i, j int) bool { return repos[i].Repo < repos[j].Repo })
 	return provider.BotRepoResult{Repos: repos, Incomplete: incomplete || total > seen}, nil

@@ -102,6 +102,7 @@ type botsModel struct {
 	cursor        int
 	selected      map[int64]bool
 	filter        int
+	forkFilter    int // personal accounts: hide forks, all repositories, forks only
 	query         string
 	method        int
 	confirm       string // pending merge or close confirmation
@@ -162,6 +163,7 @@ func (m *botsModel) loadAt(notice string, page int, index *bots.RepoListing) tea
 	}
 	m.loading = true
 	service, root, org, author, label := m.services[m.active], m.ctx, m.org, m.author, m.label
+	info, forkFilter := service.Info(), m.forkFilter
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(root, 2*time.Minute)
 		defer cancel()
@@ -171,6 +173,18 @@ func (m *botsModel) loadAt(notice string, page int, index *bots.RepoListing) tea
 				return botsLoadedMsg{err: err}
 			}
 			index = &fetched
+			if info.Kind == "github" && strings.EqualFold(org, info.Viewer.Login) {
+				repos := index.Repos
+				index.Repos = nil
+				index.Total = 0
+				for _, repo := range repos {
+					if (forkFilter == 0 && repo.Fork) || (forkFilter == 2 && !repo.Fork) {
+						continue
+					}
+					index.Repos = append(index.Repos, repo)
+					index.Total += repo.Count
+				}
+			}
 		}
 		page = max(0, min(page, (len(index.Repos)-1)/botsRepoPageSize))
 		names := []string{}
@@ -437,6 +451,9 @@ func (m *botsModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.listing != nil && msg.listing.Org == m.org {
+			if m.index != nil && !slices.ContainsFunc(m.index.Repos, func(repo provider.BotRepo) bool { return repo.Repo == msg.repo }) {
+				return m, nil
+			}
 			items := []provider.BotPullRequest{}
 			for _, pr := range m.listing.Items {
 				if pr.Repo != msg.repo {
@@ -588,6 +605,16 @@ func (m *botsModel) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		m.filter = (m.filter + 1) % len(botStatusFilters)
 		m.cursor = 0
+	case "F":
+		info := m.services[m.active].Info()
+		if m.loading || info.Kind != "github" || !strings.EqualFold(m.org, info.Viewer.Login) {
+			return m, nil
+		}
+		m.forkFilter = (m.forkFilter + 1) % 3
+		m.cursor = 0
+		m.listing = nil
+		clear(m.selected)
+		return m, m.load("")
 	case "/":
 		return m, m.startInput(inputFilter, m.query, "Filter: ")
 	case "o":
@@ -722,6 +749,9 @@ func (m *botsModel) View() tea.View {
 	if m.loading && m.listing != nil {
 		lines[1] = accent.Render("⏳ Loading…")
 	}
+	if info.Kind == "github" && strings.EqualFold(m.org, info.Viewer.Login) {
+		lines = append(lines, muted.Render("Repositories: "+[]string{"Hide forks", "All repositories", "Forks only"}[m.forkFilter]+" · F to change"))
+	}
 	items := m.visible()
 	switch {
 	case m.loading && m.listing == nil:
@@ -794,7 +824,7 @@ func (m *botsModel) View() tea.View {
 	case m.confirm != "":
 		footer = append(footer, amber.Render(m.confirm))
 	default:
-		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · / filter · o org · u author · l label · [ ] provider")))
+		footer = append(footer, muted.Render(clip("j/k move · x select · * all · f status · F forks · / filter · o org · u author · l label · [ ] provider")))
 		footer = append(footer, muted.Render(clip("a approve · m merge · X close · n/p page · M method · b rebase · R recreate · c custom comment · enter open · r refresh · q quit")))
 	}
 	for len(lines)+len(footer) < m.height {
